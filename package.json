@@ -1,0 +1,87 @@
+{
+  "name": "coplay",
+  "version": "1.4.2",
+  "description": "共映 · 影视与音乐资源库",
+  "author": "CoPlay",
+  "main": "desktop/main.cjs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env server/index.js",
+    "build": "tsc -b && vite build",
+    "start": "node --env-file-if-exists=.env server/index.js --production",
+    "test": "node --test tests/*.test.js",
+    "test:player": "electron tests/player-renderer.cjs",
+    "test:playlist": "electron tests/playlist-renderer.cjs",
+    "test:collections": "electron tests/collections-renderer.cjs",
+    "test:playlist-search": "electron tests/playlist-search-renderer.cjs",
+    "test:usability": "electron tests/playlist-usability-renderer.cjs",
+    "check": "tsc -b",
+    "desktop:runtime": "node node_modules/electron/install.js",
+    "desktop": "pnpm build && electron .",
+    "desktop:pack": "pnpm build && electron-builder --win portable --x64",
+    "desktop:unpacked": "pnpm build && electron-builder --win --dir --x64"
+  },
+  "build": {
+    "appId": "com.coplay.desktop",
+    "productName": "CoPlay",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "server/**/*",
+      "desktop/**/*",
+      "package.json",
+      "!server/network.js",
+      "!desktop/*.md"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "desktop/icon.ico",
+      "signExecutable": false
+    },
+    "portable": {
+      "artifactName": "CoPlay-${version}-win-x64.exe"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false
+    }
+  },
+  "engines": {
+    "node": ">=22.10.0"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "acorn": "^8.19.0",
+    "cheerio": "^1.2.0",
+    "express": "^5.1.0",
+    "hls.js": "^1.7.3",
+    "ipaddr.js": "^2.5.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}

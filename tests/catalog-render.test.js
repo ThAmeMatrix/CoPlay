@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'vite';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { load } from 'cheerio';
+import { createBrowserCatalogCache } from '../src/catalog-client.ts';
+
+test('initial cached catalog renders only 24 cards, lazy images and visible cache controls', async t => {
+  const data = new Map();
+  const storage = { getItem: key => data.get(key), setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
+  const source = { id: 'fixture', name: '测试目录', type: 'html', url: 'https://films.example/', searchUrl: 'https://films.example/search?q={query}&page={page}', kind: '电影', enabled: true, status: { state: 'ok', message: '' } };
+  const items = Array.from({ length: 60 }, (_, n) => ({ id: 'movie-' + n, title: '影片 ' + n, kind: '电影', platform: '测试目录', tags: ['电影'], cover: 'https://films.example/poster.jpg', playbackType: 'external', url: source.url, duration: '详情', description: '' }));
+  const cache = createBrowserCatalogCache(storage); cache.setSources([source]); cache.set(source, '', 1, { items, page: 1, hasMore: false, warnings: [] });
+  globalThis.window = { localStorage: storage };
+  t.after(() => { delete globalThis.window; });
+  const vite = await createServer({ server: { middlewareMode: true, hmr: false, host: '127.0.0.1' }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', logLevel: 'error' });
+  t.after(() => vite.close());
+  const { default: ResourceSquare } = await vite.ssrLoadModule('/src/ResourceSquare.tsx');
+  const noop = () => {};
+  const html = renderToStaticMarkup(createElement(ResourceSquare, { query: '', local: [], favorites: [], onOpen: noop, onAdd: noop, onFavorite: noop, onImport: noop, notify: noop }));
+  const $ = load(html);
+  assert.equal($('.media-card').length, 24);
+  assert.equal($('img[loading="lazy"][decoding="async"]').length, 24);
+  assert.match($('.catalog-cache-panel').text(), /60 条/);
+  assert.match($('.catalog-cache-panel').text(), /清理目录缓存/);
+  assert.match($('.catalog-sentinel').text(), /24 \/ 60/);
+  assert.equal($('.catalog-skeleton').length, 0);
+  cache.set(source, '演员 & 别名', 1, { items: items.slice(0, 2), page: 1, total: 73, hasMore: true, warnings: [] });
+  const search = load(renderToStaticMarkup(createElement(ResourceSquare, { query: '演员 & 别名', local: [], favorites: [], onOpen: noop, onAdd: noop, onFavorite: noop, onImport: noop, notify: noop })));
+  assert.equal(search('.media-card').length, 2);
+  assert.match(search('.source-search-summary').text(), /演员 & 别名/);
+  assert.match(search('.source-search-summary').text(), /73 个匹配/);
+  assert.match(search('.square-more').text(), /下一页搜索结果/);
+  const original = new URL(search('.source-search-summary a').attr('href'));
+  assert.equal(original.searchParams.get('q'), '演员 & 别名');
+});

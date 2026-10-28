@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { io as client } from 'socket.io-client';
+import { createApplication, validateMedia } from '../server/app.js';
+
+const manifest = { name: 'movie.mp4', size: 2 ** 34, mime: 'video/mp4', fingerprint: 'a'.repeat(64), lastModified: 1 };
+const media = { id: 'local-test', title: '本地影片', playbackType: 'local', localFile: manifest };
+const ack = (s, e, body) => new Promise((resolve, reject) => s.timeout(3000).emit(e, body, (error, result) => error ? reject(error) : resolve(result)));
+const event = (s, e) => new Promise((resolve, reject) => { const t = setTimeout(() => { s.off(e, handler); reject(Error(`timeout ${e}`)); }, 3000); const handler = value => { clearTimeout(t); resolve(value); }; s.once(e, handler); });
+test('local manifest allows large files but never transmits browser paths or blob URLs', () => {
+  const sanitized = validateMedia({ ...media, playbackUrl: 'blob:local-only', localFile: { ...manifest, path: 'C:/private/movie.mp4' } });
+  assert.ok(sanitized); assert.equal(sanitized.localFile.size, 2 ** 34); assert.equal(sanitized.playbackUrl, undefined); assert.equal(sanitized.localFile.path, undefined);
+  for (const bad of [{ size: -1 }, { size: Number.MAX_SAFE_INTEGER }, { fingerprint: 'fake' }, { mime: 'text/html' }]) assert.equal(validateMedia({ ...media, localFile: { ...manifest, ...bad } }), null);
+});
+test('P2P provider capability is private and independent of playback host', async t => {
+  const { app, httpServer, io, rooms } = await createApplication({ test: true });
+  httpServer.listen(0, '127.0.0.1'); await once(httpServer, 'listening'); const base = `http://127.0.0.1:${httpServer.address().port}`;
+  const sockets = []; t.after(() => { sockets.forEach(s => s.disconnect()); io.close(); httpServer.close(); });
+  const req = async (route, body) => { const r = await fetch(base + route, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}); return { status: r.status, body: await r.json() }; };
+  const connect = async () => { const s = client(base, { transports: ['websocket'], forceNew: true }); sockets.push(s); await event(s, 'connect'); return s; };
+  const created = (await req('/api/rooms', { media, name: 'P2P' })).body;
+  assert.ok(created.seedKey); assert.notEqual(created.hostKey, created.seedKey);
+  const owner = await connect(), viewer = await connect(), outsider = await connect();
+  const ownerJoin = await ack(owner, 'room:join', { id: created.id, hostKey: created.hostKey });
+  await ack(viewer, 'room:join', { id: created.id });
+  assert.equal(ownerJoin.room.seedKey, undefined);
+  assert.ok((await ack(viewer, 'file:available', { seedKey: created.hostKey, fingerprint: manifest.fingerprint })).error);
+  assert.ok((await ack(owner, 'file:available', { seedKey: created.seedKey, fingerprint: 'b'.repeat(64) })).error);
+  const state = event(viewer, 'room:state'); assert.equal((await ack(owner, 'file:available', { seedKey: created.seedKey, fingerprint: manifest.fingerprint })).ok, true); assert.equal((await state).seedId, owner.id);
+  const offer = event(owner, 'file:signal'); viewer.emit('file:signal', { target: owner.id, request: true }); assert.equal((await offer).from, viewer.id);
+  let leaked = false; owner.on('file:signal', () => { leaked = true; }); outsider.emit('file:signal', { target: owner.id, request: true }); await new Promise(r => setTimeout(r, 60)); assert.equal(leaked, false);
+  const sync = event(viewer, 'playback:sync'); owner.emit('playback:update', { playing: true, time: 3600 }); assert.equal((await sync).time, 3600);
+  const departed = event(viewer, 'room:state'); owner.disconnect(); const migrated = await departed;
+  assert.equal(migrated.hostId, viewer.id); assert.equal(migrated.seedId, '', 'new playback host does not gain access to old local file');
+  assert.ok((await ack(viewer, 'file:available', { fingerprint: manifest.fingerprint })).error);
+  const again = await connect(); await ack(again, 'room:join', { id: created.id, hostKey: created.hostKey });
+  assert.equal((await ack(again, 'file:available', { seedKey: created.seedKey, fingerprint: manifest.fingerprint })).ok, true);
+  assert.equal(rooms.get(created.id).seedId, again.id, 'owner can restore the file after reconnect');
+  const remoteConfig = await fetch(base + '/api/sources', { method: 'POST', headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '1.2.3.4' }, body: JSON.stringify({ name: 'bad', url: 'https://example.com/', type: 'html' }) }); assert.equal(remoteConfig.status, 403);
+});
