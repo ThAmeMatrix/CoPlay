@@ -51,9 +51,11 @@ export default function LocalPlaylistImport({ playlists, target, onTargetChange,
       <div className="collection-selection"><label><input type="checkbox" aria-label="全选本地文件" checked={chosen.length === entries.length} onChange={event => setSelected(new Set(event.target.checked ? entries.map(entry => entry.media.id) : []))} />全选本地文件</label><span>已选 {chosen.length} / {entries.length} 项</span><div className="input-with-icon"><Search size={14} /><input aria-label="搜索待导入本地文件" placeholder="查找文件名" value={query} onChange={event => setQuery(event.target.value)} /></div></div>
       <div className="collection-items" role="group" aria-label="待导入本地文件">{visible.map(({ media }) => <label key={media.id}><input type="checkbox" aria-label={`导入${media.title}`} checked={selected.has(media.id)} onChange={() => toggle(media.id)} /><Cover media={media} /><span><strong>{media.title}</strong><small>{media.subtitle} · {media.duration}</small></span></label>)}</div>
       {!visible.length && <p className="field-hint">没有匹配的文件。</p>}
-      <PlaylistImportDestination playlists={playlists} target={target} title={title} onTargetChange={onTargetChange} onTitleChange={setTitle} />
-      <button className="button button-primary full-width" disabled={busy || !chosen.length || target === 'new' && !title.trim()} onClick={() => { chosen.forEach(entry => entry.attach()); onImport(chosen.map(entry => entry.media), target, title.trim()); }}><Check size={16} />导入已选 {chosen.length} 项</button>
-      <p className="field-hint">同一文件自动去重；新内容按选择顺序添加。也可以继续选择更多文件。</p>
+      <div className="import-footer">
+        <PlaylistImportDestination playlists={playlists} target={target} title={title} onTargetChange={onTargetChange} onTitleChange={setTitle} />
+        <button className="button button-primary full-width" disabled={busy || !chosen.length || target === 'new' && !title.trim()} onClick={() => { chosen.forEach(entry => entry.attach()); onImport(chosen.map(entry => entry.media), target, title.trim()); }}><Check size={16} />导入已选 {chosen.length} 项</button>
+        <p className="field-hint">同一文件自动去重；新内容按选择顺序添加。也可以继续选择更多文件。</p>
+      </div>
     </>}
     {errors.length > 0 && <div className="local-import-errors" role="alert">{errors.map((error, index) => <p className="form-error" key={index}>{error}</p>)}</div>}
   </div>;

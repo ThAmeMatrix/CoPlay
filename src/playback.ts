@@ -1,0 +1,227 @@
+import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { acceleratorMatches, normalizeShortcuts, type ShortcutMap } from './shortcuts';
+
+export interface PlaybackMeta {
+  id: string; title: string; subtitle: string; cover: string; platform: string; kind: string;
+}
+export interface PlaybackSnapshot {
+  active: boolean;
+  meta: PlaybackMeta | null;
+  playing: boolean;
+  currentTime: number;
+  duration: number;
+  volume: number;
+  muted: boolean;
+  /** A real <video>/<audio> element is available for transport control. */
+  controllable: boolean;
+  /** The active player is a cross-origin iframe owned by the source platform. */
+  embedded: boolean;
+}
+export type CommandAction =
+  | 'playPause' | 'seekBack' | 'seekForward' | 'previous' | 'next'
+  | 'mute' | 'volumeUp' | 'volumeDown' | 'seekTo' | 'setVolume' | 'toggleFullscreen';
+
+const EMPTY: PlaybackSnapshot = {
+  active: false, meta: null, playing: false, currentTime: 0, duration: 0,
+  volume: 1, muted: false, controllable: false, embedded: false,
+};
+const MEDIA_EVENTS = ['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'volumechange', 'ended', 'seeked'];
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+function mediaElement(): HTMLMediaElement | null {
+  const nodes = Array.from(document.querySelectorAll<HTMLMediaElement>('video, audio'));
+  return nodes.find(node => node.isConnected && node.getClientRects().length > 0) || nodes[0] || null;
+}
+function embeddedPlayer(): boolean {
+  return !!document.querySelector('.detail-player iframe, .theater-stage iframe, .platform-music-player iframe, .bili-player-stage iframe');
+}
+
+class PlaybackBus {
+  private listeners = new Set<() => void>();
+  private snapshot: PlaybackSnapshot = EMPTY;
+  private element: HTMLMediaElement | null = null;
+  private metaOwner: string | null = null;
+  private queue: { previous: () => void; next: () => void } | null = null;
+  private shortcuts: ShortcutMap = normalizeShortcuts(null);
+  private resumeAt = 0;
+  private lastCommand: { action: string; at: number } | null = null;
+  private publishTimer: ReturnType<typeof setTimeout> | undefined;
+  private started = false;
+  private fullscreen = false;
+
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  getSnapshot = () => this.snapshot;
+  private emit() { for (const listener of this.listeners) listener(); }
+  private set(patch: Partial<PlaybackSnapshot>) {
+    const next = { ...this.snapshot, ...patch };
+    let changed = false;
+    for (const key of Object.keys(next) as (keyof PlaybackSnapshot)[]) {
+      if (next[key] !== this.snapshot[key]) { changed = true; break; }
+    }
+    if (!changed) return;
+    this.snapshot = next;
+    this.emit();
+    this.publish();
+  }
+  private publish() {
+    if (this.publishTimer) return;
+    this.publishTimer = setTimeout(() => {
+      this.publishTimer = undefined;
+      window.coplayDesktop?.publishPlayback?.(this.snapshot);
+    }, 180);
+  }
+
+  /** The active player view announces the media the tray/bubble should display. */
+  setSource(meta: PlaybackMeta | null, owner: string, active = true) {
+    if (!active) { this.clearSource(owner); return; }
+    this.metaOwner = owner;
+    if (meta) this.set({ active: true, meta });
+    else this.set({ active: true });
+    this.syncDom();
+  }
+  clearSource(owner: string) {
+    if (this.metaOwner !== owner) return;
+    this.metaOwner = null;
+    this.set({ active: false, meta: null, playing: false, currentTime: 0, duration: 0, controllable: false, embedded: false });
+  }
+  setQueueHandlers(handlers: { previous: () => void; next: () => void } | null) { this.queue = handlers; }
+  setShortcuts(map: ShortcutMap) { this.shortcuts = normalizeShortcuts(map); }
+  /** Preserve the playhead when the player is remounted into a different layout. */
+  requestResume(seconds?: number) { this.resumeAt = seconds ?? this.snapshot.currentTime; }
+
+  private attach(element: HTMLMediaElement) {
+    this.element = element;
+    for (const event of MEDIA_EVENTS) element.addEventListener(event, this.readElement);
+    if (this.resumeAt > 0) {
+      const target = this.resumeAt;
+      this.resumeAt = 0;
+      const seek = () => {
+        if (Number.isFinite(element.duration)) element.currentTime = clamp(target, 0, Math.max(0, element.duration - 0.25));
+        element.removeEventListener('loadedmetadata', seek);
+      };
+      element.addEventListener('loadedmetadata', seek);
+      if (element.readyState >= 1) seek();
+    }
+    this.readElement();
+  }
+  private detach() {
+    if (!this.element) return;
+    for (const event of MEDIA_EVENTS) this.element.removeEventListener(event, this.readElement);
+    this.element = null;
+  }
+  private readElement = () => {
+    const element = this.element;
+    if (!element) return;
+    this.set({
+      controllable: true, embedded: false,
+      playing: !element.paused && !element.ended,
+      currentTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
+      duration: Number.isFinite(element.duration) ? element.duration : 0,
+      volume: element.volume, muted: element.muted,
+    });
+  };
+
+  /** Re-scan the DOM after React swaps a player or an iframe mounts. */
+  syncDom = () => {
+    const element = mediaElement();
+    if (element !== this.element) { this.detach(); if (element) this.attach(element); }
+    if (!element) {
+      const embedded = embeddedPlayer();
+      this.set({ controllable: false, embedded, ...(embedded ? {} : { playing: false, currentTime: 0, duration: 0 }) });
+    } else if (this.element) this.readElement();
+  };
+
+  command = (action: CommandAction, value?: number) => {
+    if (action === 'toggleFullscreen') {
+      this.fullscreen = !this.fullscreen;
+      if (window.coplayDesktop?.setFullscreen) window.coplayDesktop.setFullscreen(this.fullscreen);
+      else if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+      else void document.documentElement.requestFullscreen?.().catch(() => {});
+      return;
+    }
+    const now = Date.now();
+    if (this.lastCommand && this.lastCommand.action === action && now - this.lastCommand.at < 140) return;
+    this.lastCommand = { action, at: now };
+    if (action === 'previous' || action === 'next') { this.queue?.[action](); return; }
+    const element = this.element;
+    if (!element) {
+      // Cross-origin embeds cannot be driven from this document. Keep the visual
+      // play state meaningful for the tray/bubble while the platform player is used.
+      if (action === 'playPause' && this.snapshot.embedded) this.set({ playing: !this.snapshot.playing });
+      return;
+    }
+    switch (action) {
+      case 'playPause':
+        if (element.paused) void element.play().catch(() => {}); else element.pause();
+        break;
+      case 'seekBack': element.currentTime = Math.max(0, element.currentTime - 10); break;
+      case 'seekForward':
+        element.currentTime = Math.min(Number.isFinite(element.duration) ? element.duration : element.currentTime + 10, element.currentTime + 10);
+        break;
+      case 'seekTo':
+        if (Number.isFinite(value)) element.currentTime = clamp(value!, 0, Number.isFinite(element.duration) ? element.duration : 0);
+        break;
+      case 'mute': element.muted = !element.muted; break;
+      case 'volumeUp': element.volume = clamp(element.volume + 0.05, 0, 1); element.muted = false; break;
+      case 'volumeDown': element.volume = clamp(element.volume - 0.05, 0, 1); break;
+      case 'setVolume':
+        if (Number.isFinite(value)) { element.volume = clamp(value!, 0, 1); element.muted = element.volume === 0; }
+        break;
+    }
+    this.readElement();
+  };
+
+  /** Install DOM observation, local shortcuts and desktop IPC. Idempotent. */
+  start() {
+    if (this.started) return;
+    this.started = true;
+    const observer = new MutationObserver(() => this.syncDom());
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'hidden', 'class'] });
+    window.setInterval(() => this.syncDom(), 400);
+    window.addEventListener('keydown', event => {
+      if (document.querySelector('[data-capturing-shortcut]')) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      for (const [action, accelerator] of Object.entries(this.shortcuts) as [CommandAction, string][]) {
+        if (!accelerator || !acceleratorMatches(event, accelerator)) continue;
+        event.preventDefault();
+        event.stopPropagation();
+        this.command(action);
+        break;
+      }
+    }, true);
+    this.installRemote();
+    this.syncDom();
+    this.publish();
+  }
+  private installRemote() {
+    window.coplayDesktop?.onCommand?.(command => {
+      const action = command?.action as CommandAction;
+      if (typeof action === 'string' && /^[A-Za-z]{2,20}$/.test(action)) this.command(action, command.value);
+    });
+    window.coplayDesktop?.onFullscreenState?.(on => { this.fullscreen = on; });
+  }
+}
+
+export const playback = new PlaybackBus();
+export function usePlayback(): PlaybackSnapshot { return useSyncExternalStore(playback.subscribe, playback.getSnapshot, playback.getSnapshot); }
+export function playbackMeta(media: { id: string; title: string; subtitle: string; cover: string; platform: string; kind: string }): PlaybackMeta {
+  return { id: media.id, title: media.title, subtitle: media.subtitle, cover: media.cover, platform: media.platform, kind: media.kind };
+}
+/** Mount inside a player view so the tray/bubble knows what is playing. */
+export function usePlaybackSource(meta: PlaybackMeta | null, owner: string, active = true) {
+  useEffect(() => {
+    playback.setSource(meta, owner, active);
+    return () => playback.clearSource(owner);
+  }, [meta?.id, meta?.title, meta?.cover, owner, active]);
+}
+/** Register the queue's previous/next actions for shortcuts, tray and bubble. */
+export function useQueueHandlers(previous: () => void, next: () => void, active = true) {
+  const previousRef = useRef(previous); previousRef.current = previous;
+  const nextRef = useRef(next); nextRef.current = next;
+  useEffect(() => {
+    if (!active) return;
+    playback.setQueueHandlers({ previous: () => previousRef.current(), next: () => nextRef.current() });
+    return () => playback.setQueueHandlers(null);
+  }, [active]);
+}

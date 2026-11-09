@@ -65,9 +65,11 @@ export default function CollectionImport({ playlists, initialTarget, initialUrl 
       <div className="collection-selection"><label><input type="checkbox" aria-label="全选可用条目" checked={playable.length > 0 && chosen.length === playable.length} onChange={event => setSelected(new Set(event.target.checked ? playable.map(item => item.id) : []))} />全选可用条目</label><span>已选 {chosen.length} 项</span><div className="input-with-icon"><Search size={14} /><input aria-label="搜索待导入条目" value={query} onChange={event => setQuery(event.target.value)} placeholder="查找标题或作者" /></div></div>
       <div className="collection-items" role="group" aria-label="待导入条目">{visible.map(item => <label key={item.id} className={!available(item) ? 'unavailable' : ''}><input type="checkbox" aria-label={`导入${item.title}`} disabled={!available(item)} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />{available(item) && <Cover media={item} />}<span><strong>{item.title}</strong><small>{available(item) ? `${item.subtitle} · ${item.duration}` : item.unavailable}</small></span></label>)}</div>
       {!visible.length && <p className="field-hint">没有匹配的条目。</p>}
-      <PlaylistImportDestination playlists={playlists} target={target} title={title} onTargetChange={setTarget} onTitleChange={setTitle} />
-      <button className="button button-primary full-width" disabled={busy || !chosen.length || target === 'new' && !title.trim()} onClick={() => onImport(chosen, target, title.trim())}><Check size={16} />导入已选 {chosen.length} 项</button>
-      <p className="field-hint">已有条目自动去重，保留原顺序；新内容按来源顺序添加。这里只导入资源信息，不会批量下载媒体。</p>
+      <div className="import-footer">
+        <PlaylistImportDestination playlists={playlists} target={target} title={title} onTargetChange={setTarget} onTitleChange={setTitle} />
+        <button className="button button-primary full-width" disabled={busy || !chosen.length || target === 'new' && !title.trim()} onClick={() => onImport(chosen, target, title.trim())}><Check size={16} />导入已选 {chosen.length} 项</button>
+        <p className="field-hint">已有条目自动去重，保留原顺序；新内容按来源顺序添加。这里只导入资源信息，不会批量下载媒体。</p>
+      </div>
     </>}
     {warnings.map(warning => <p key={warning} className="info-box">{warning}</p>)}
     {error && <p className="form-error" role="alert">{error}</p>}

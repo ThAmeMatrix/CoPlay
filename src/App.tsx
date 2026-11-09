@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown, ChevronRight, Clock3, Compass, Copy, Film, FolderHeart, Grid2X2, Headphones, Heart, History, Link, ListMusic, ListPlus, LoaderCircle, Menu, MessageCircle, MonitorPlay, Music2, Pencil, Play, Plus, Search, Settings2, Sparkles, Star, Tv, Users, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown, ChevronRight, Clock3, Compass, Copy, Film, FolderHeart, Grid2X2, Headphones, Heart, History, Link, ListMusic, ListPlus, LoaderCircle, Maximize2, Menu, MessageCircle, MonitorPlay, Moon, Music2, Pencil, Play, Plus, Search, Settings2, Sparkles, Star, Sun, Tv, Users, X } from 'lucide-react';
 import { catalog, initialPlaylists, spaceImage, themes } from './data';
 import type { Comment, Kind, Media, Playlist, PublicRoom } from './types';
 import { api, compactNumber, usePersistent } from './hooks';
@@ -13,7 +13,7 @@ import ImportModeTabs, { type ImportMode } from './ImportModeTabs';
 import PlaylistTransfer from './PlaylistTransfer';
 import { appendPlaylistItems, mergeImportedResources, transferPlaylistItem } from './playlist-actions';
 import PlaybackModeSelect from './PlaybackModeSelect';
-import { normalizePlaybackMode, reorderPlaylist } from './playback-queue';
+import { normalizePlaybackMode, reorderPlaylist, type PlaybackMode } from './playback-queue';
 import ResourceSquare from './ResourceSquare';
 import ShareModal from './ShareModal';
 import { AttachDownloadedFile, ResourcePlayer, LocalRestore } from './MediaPlayer';
@@ -21,6 +21,10 @@ import { addLocalFile, localAccept, useLocalAsset } from './local-media';
 import DownloadPanel from './DownloadPanel';
 import DesktopDownloads from './DesktopDownloads';
 import { bilibiliPlaybackTarget } from './bilibili-player';
+import SettingsModal from './SettingsModal';
+import TheaterView, { type TheaterSession } from './TheaterView';
+import { useSettings } from './settings';
+import { playback, playbackMeta, usePlayback, usePlaybackSource } from './playback';
 import { version as appVersion } from '../package.json';
 
 type Page = 'discover' | 'browse' | 'local' | 'rooms' | 'playlists' | 'favorites' | 'history' | 'playlist';
@@ -68,13 +72,35 @@ export default function App() {
   const [roomLoading, setRoomLoading] = useState(false);
   const [toast, setToast] = useState('');
   const [notifications, setNotifications] = useState(false);
+  const [theater, setTheater] = useState<TheaterSession | null>(null);
+  const [shortcutConflicts, setShortcutConflicts] = useState<string[]>([]);
+  const [settings, patchSettings] = useSettings();
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
   const resources = useMemo(() => [...imported, ...catalog.filter(m => !imported.some(i => i.id === m.id))], [imported]);
+  const playableResources = useMemo(() => resources.filter(m => m.playbackType !== 'external'), [resources]);
   const playlist = playlists.find(p => p.id === activePlaylist);
   const notify = (text: string) => { clearTimeout(toastTimer.current); setToast(text); toastTimer.current = setTimeout(() => setToast(''), 3500); };
   useEffect(() => { const handler = () => notify('本地存储空间不足，部分修改可能无法保存'); window.addEventListener('coplay:storage-error', handler); return () => window.removeEventListener('coplay:storage-error', handler); }, []);
   useEffect(() => { const handler = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); searchRef.current?.focus(); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
+  useEffect(() => window.coplayDesktop?.onShortcutConflicts?.(list => setShortcutConflicts(Array.isArray(list) ? list : [])), []);
+  const openTheater = (items: Media[], index: number, title: string) => {
+    if (!items.length) { notify('没有可播放的内容，先导入资源或打开一个播放列表'); return; }
+    playback.requestResume();
+    setSelected(null); setQueue(null);
+    setTheater({ title, items, index: Math.max(0, Math.min(items.length - 1, index)), mode: playbackMode });
+  };
+  const openTheaterFromPlayer = () => {
+    const items = queue?.items || playableResources;
+    const id = playback.getSnapshot().meta?.id;
+    openTheater(items, id ? Math.max(0, items.findIndex(m => m.id === id)) : 0, queue?.title || '我的资源库');
+  };
+  const detachTheater = () => {
+    if (!theater) return;
+    try { localStorage.setItem('coplay:theater-session-v1', JSON.stringify(theater)); } catch { /* storage unavailable */ }
+    window.coplayDesktop?.openTheater?.();
+    setTheater(null);
+  };
   useEffect(() => { if (!roomsEnabled) return; const handler = () => setRoomId(new URLSearchParams(location.search).get('room')); window.addEventListener('popstate', handler); return () => window.removeEventListener('popstate', handler); }, []);
   useEffect(() => {
     if (!roomsEnabled || page !== 'rooms') return;
@@ -134,7 +160,7 @@ export default function App() {
 
     <div className="main-shell">
       <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)} aria-label="打开导航"><Menu size={22} /></button><div className="breadcrumb">探索世界<span>/</span><strong>{page === 'discover' ? '发现' : page === 'local' ? '本地资源' : page === 'browse' ? '资源广场' : '我的空间'}</strong></div>
-        <div className="topbar-actions"><div className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={e => { setQuery(e.target.value); if (page === 'rooms' || page === 'discover') setPage('browse'); }} placeholder={page === 'playlists' ? '搜索播放列表名称、描述…' : page === 'playlist' ? '搜索列表内的标题、作者、来源…' : '搜索影视、音乐、创作者…'} aria-label={page === 'playlists' ? '搜索播放列表' : page === 'playlist' ? '搜索列表内容' : '搜索资源'} />{query ? <button className="plain-icon" aria-label="清空搜索" onClick={() => setQuery('')}><X size={15} /></button> : <kbd>Ctrl K</kbd>}</div><button className="button button-primary import-top" onClick={() => page === 'playlist' || page === 'playlists' ? setCollectionImport({}) : setModal(page === 'local' ? 'local' : 'import')}><Plus size={17} />导入资源</button><div className="notification-wrap"><button className={`icon-button notification-button ${notifications ? 'selected' : ''}`} aria-label="消息通知" onClick={() => setNotifications(v => !v)}><Bell size={19} /></button>{notifications && <div className="notification-menu"><strong>共映小助手</strong><p>浏览在线目录，或导入电脑里的视频与音乐，制作自己的播放列表。</p><button className="text-link" onClick={() => { setNotifications(false); setModal('local'); }}>打开本地影片<ArrowRight size={14} /></button></div>}</div><button className="avatar-button" onClick={() => setModal('profile')} aria-label="个人设置">{nickname.slice(0, 1)}</button></div>
+        <div className="topbar-actions"><div className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={e => { setQuery(e.target.value); if (page === 'rooms' || page === 'discover') setPage('browse'); }} placeholder={page === 'playlists' ? '搜索播放列表名称、描述…' : page === 'playlist' ? '搜索列表内的标题、作者、来源…' : '搜索影视、音乐、创作者…'} aria-label={page === 'playlists' ? '搜索播放列表' : page === 'playlist' ? '搜索列表内容' : '搜索资源'} />{query ? <button className="plain-icon" aria-label="清空搜索" onClick={() => setQuery('')}><X size={15} /></button> : <kbd>Ctrl K</kbd>}</div><button className="button button-primary import-top" onClick={() => page === 'playlist' || page === 'playlists' ? setCollectionImport({}) : setModal(page === 'local' ? 'local' : 'import')}><Plus size={17} />导入资源</button><button className="icon-button theme-toggle" aria-label={settings.theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'} title={settings.theme === 'dark' ? '日间模式' : '夜间模式'} onClick={() => patchSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}>{settings.theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button><button className="icon-button theme-toggle topbar-theater" aria-label="打开播放界面" title="放大播放 · 独立界面与右侧列表" onClick={openTheaterFromPlayer}><Maximize2 size={18} /></button><div className="notification-wrap"><button className={`icon-button notification-button ${notifications ? 'selected' : ''}`} aria-label="消息通知" onClick={() => setNotifications(v => !v)}><Bell size={19} /></button>{notifications && <div className="notification-menu"><strong>共映小助手</strong><p>浏览在线目录，或导入电脑里的视频与音乐，制作自己的播放列表。</p><button className="text-link" onClick={() => { setNotifications(false); setModal('local'); }}>打开本地影片<ArrowRight size={14} /></button></div>}</div><button className="avatar-button" onClick={() => setModal('profile')} aria-label="个人设置">{nickname.slice(0, 1)}</button></div>
       </header>
       <main className="main-content">
         <div className="page-heading"><div><div className="eyebrow">MAKE TIME FOR WHAT YOU LOVE</div><h1>{query.trim() && page !== 'playlist' && page !== 'playlists' ? `搜索「${query.trim()}」` : pageTitle}<span className="heading-dot">.</span></h1><p>{query.trim() ? page === 'browse' ? '搜索已连接的在线来源，结果显示在下方' : page === 'playlists' ? `找到 ${visiblePlaylists.length} / ${playlists.length} 个播放列表` : page === 'playlist' ? `在当前列表中找到 ${listResources.length} 项内容` : `在你的资源库中找到 ${listResources.length} 份内容` : pageSubtitle}</p></div><div className="heading-right">{page === 'local' ? <button className="button button-primary" onClick={() => setModal('local')}><Plus size={17} />打开本地文件</button> : page === 'playlists' ? <button className="button button-primary" onClick={() => setModal('playlist')}><Plus size={17} />新建播放列表</button> : <span className="daily-note"><span className="sun-icon">✳</span> 给生活一点好内容</span>}</div></div>
@@ -177,12 +203,13 @@ export default function App() {
     }} />}
     {modal === 'playlist' && <NewPlaylistModal onClose={() => { setModal(null); setNewPlaylistMedia(null); }} onCreate={title => { const p = { id: crypto.randomUUID(), title, description: '', ids: newPlaylistMedia ? [newPlaylistMedia.id] : [] as string[], color: '#b6bfb5' }; setPlaylists(old => [...old, p]); setNewPlaylistMedia(null); setActivePlaylist(p.id); setModal(null); navigate('playlist'); notify('播放列表已创建'); }} />}
     {roomsEnabled && modal === 'network' && <ShareModal onClose={() => setModal(null)} notify={notify} />}
-    {modal === 'profile' && <ProfileModal onNetwork={() => setModal('network')} nickname={nickname} onSave={name => { setNickname(name); setModal(null); notify('昵称已更新'); }} onClose={() => setModal(null)} />}
+    {modal === 'profile' && <SettingsModal nickname={nickname} onSave={name => { setNickname(name); setModal(null); notify('昵称已更新'); }} onClose={() => setModal(null)} settings={settings} patch={patchSettings} desktop={!!window.coplayDesktop} conflicts={shortcutConflicts} />}
     {roomsEnabled && modal === 'join' && <JoinModal onJoin={enterRoom} onClose={() => setModal(null)} />}
     {roomsEnabled && modal === 'room' && <CreateRoomModal media={roomMedia} resources={resources.filter(m => m.playbackType !== 'external')} nickname={nickname} onSelect={setRoomMedia} onClose={() => setModal(null)} onCreated={(id, key, seedKey) => { sessionStorage.setItem(`coplay:host:${id}`, key); if (seedKey) sessionStorage.setItem(`coplay:seed:${id}`, seedKey); recordPlay(roomMedia); enterRoom(id); }} />}
-    {selected && <DetailModal key={selected.id} media={selected} nickname={nickname} onClose={() => setSelected(null)} favorite={favorites.includes(selected.id)} onFavorite={() => toggleFavorite(selected)} onAdd={() => { setAddMedia(selected); setSelected(null); }} onRoom={m => startRoom(m)} onPlayed={() => recordPlay(selected)} notify={notify} />}
-    {addMedia && <Modal title="收进你的播放列表" subtitle={addMedia.title} onClose={() => setAddMedia(null)}><div className="choose-playlist">{playlists.map(p => { const added = p.ids.includes(addMedia.id); return <button key={p.id} onClick={() => { setPlaylists(old => old.map(item => item.id === p.id ? { ...item, ids: added ? item.ids.filter(id => id !== addMedia.id) : [...item.ids, addMedia.id] } : item)); notify(added ? '已从列表移除' : `已加入「${p.title}」`); }}><span className="list-icon" style={{ background: p.color }}><ListMusic size={20} /></span><span><strong>{p.title}</strong><small>{p.ids.length} 个内容</small></span>{added ? <Check size={18} className="orange-text" /> : <Plus size={18} />}</button>})}</div><button className="button button-outline full-width" onClick={() => { setNewPlaylistMedia(addMedia); setAddMedia(null); setModal('playlist'); }}><Plus size={16} />新建播放列表</button></Modal>}
-    {queue && <QueuePlayer title={queue.title} items={queue.items} initialIndex={queue.initialIndex} mode={playbackMode} onModeChange={setPlaybackMode} onClose={() => setQueue(null)} onPlayed={recordPlay} />}
+    {selected && <DetailModal key={selected.id} media={selected} nickname={nickname} onClose={() => setSelected(null)} favorite={favorites.includes(selected.id)} onFavorite={() => toggleFavorite(selected)} onAdd={() => { setAddMedia(selected); setSelected(null); }} onRoom={m => startRoom(m)} onPlayed={() => recordPlay(selected)} onTheater={() => openTheater(playableResources, Math.max(0, playableResources.findIndex(m => m.id === selected.id)), selected.title)} notify={notify} />}
+    {addMedia && <Modal title="收进你的播放列表" subtitle={addMedia.title} onClose={() => setAddMedia(null)}><div className="choose-playlist">{playlists.map(p => { const added = p.ids.includes(addMedia.id); return <button key={p.id} onClick={() => { setPlaylists(old => old.map(item => item.id === p.id ? { ...item, ids: added ? item.ids.filter(id => id !== addMedia.id) : [...item.ids, addMedia.id] } : item)); notify(added ? '已从列表移除' : `已加入「${p.title}」`); }}><span className="list-icon" style={{ background: p.color }}><ListMusic size={20} /></span><span><strong>{p.title}</strong><small>{p.ids.length} 个内容</small></span>{added ? <Check size={18} className="orange-text" /> : <Plus size={18} />}</button>})}</div><div className="import-footer"><button className="button button-outline full-width" onClick={() => { setNewPlaylistMedia(addMedia); setAddMedia(null); setModal('playlist'); }}><Plus size={16} />新建播放列表</button></div></Modal>}
+    {queue && <QueuePlayer title={queue.title} items={queue.items} initialIndex={queue.initialIndex} mode={playbackMode} onModeChange={setPlaybackMode} onClose={() => setQueue(null)} onPlayed={recordPlay} onTheater={index => openTheater(queue.items, index, queue.title)} />}
+    {theater && <TheaterView session={theater} onClose={() => { playback.requestResume(); setTheater(null); }} onPlayed={recordPlay} onModeChange={setPlaybackMode} onDetach={window.coplayDesktop ? detachTheater : undefined} />}
     {toast && <Toast text={toast} />}
   </div>;
 }
@@ -227,27 +254,17 @@ function ImportModal({ onClose, onImported, onCollection, initialMode = 'link' }
   </Modal>;
 }
 function NewPlaylistModal({ onClose, onCreate }: { onClose: () => void; onCreate: (title: string) => void }) { const [title, setTitle] = useState(''); return <Modal title="创建一份专属片单" subtitle="为一种心情，或一个特别的人。" onClose={onClose}><form onSubmit={e => { e.preventDefault(); if (title.trim()) onCreate(title.trim()); }}><label className="field-label" htmlFor="playlist-title">播放列表名称</label><input id="playlist-title" className="text-input" maxLength={40} autoFocus placeholder="比如：和你一起看的100部电影" value={title} onChange={e => setTitle(e.target.value)} required /><button className="button button-primary full-width spaced" disabled={!title.trim()}><Plus size={16} />创建播放列表</button></form></Modal>; }
-function ProfileModal({ nickname, onSave, onClose }: { onNetwork: () => void; nickname: string; onSave: (name: string) => void; onClose: () => void }) {
-  const [name, setName] = useState(nickname);
-  return <Modal title="你好，同频的朋友" subtitle="设置昵称，整理属于你的内容空间。" onClose={onClose}>
-    <form onSubmit={e => { e.preventDefault(); if (name.trim()) onSave(name.trim()); }}>
-      <label className="field-label" htmlFor="nickname">我的昵称</label>
-      <input className="text-input" id="nickname" maxLength={24} required value={name} onChange={e => setName(e.target.value)} />
-      <p className="info-box">你的收藏、片单和昵称保存在当前浏览器中。当前仅在本机测试，放映室与公网分享已暂停。</p>
-      <button className="button button-primary full-width" disabled={!name.trim()}>保存设置</button>
-    </form>
-  </Modal>;
-}
 function JoinModal({ onJoin, onClose }: { onJoin: (id: string) => void; onClose: () => void }) { const [value, setValue] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(false); return <Modal title="加入朋友的放映室" subtitle="粘贴邀请链接，或输入 8 位房间号。" onClose={onClose}><form onSubmit={async e => { e.preventDefault(); let id = value.trim(); try { id = new URL(id).searchParams.get('room') || id; } catch { /* A bare room code is valid. */ } if (!/^[a-f0-9]{8}$/i.test(id)) { setError('请输入正确的邀请链接或 8 位房间号'); return; } setLoading(true); try { await api(`/api/rooms/${id.toLowerCase()}`); onJoin(id.toLowerCase()); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }}><input className="text-input" aria-label="房间号或邀请链接" required value={value} onChange={e => setValue(e.target.value)} placeholder="粘贴邀请链接或房间号…" />{error && <p className="form-error" role="alert">{error}</p>}<button className="button button-primary full-width spaced" disabled={loading || !value.trim()}>{loading ? <LoaderCircle size={16} className="spin" /> : <ArrowRight size={16} />}加入放映室</button></form></Modal>; }
 function CreateRoomModal({ media, resources, nickname, onSelect, onClose, onCreated }: { media: Media; resources: Media[]; nickname: string; onSelect: (m: Media) => void; onClose: () => void; onCreated: (id: string, key: string, seedKey?: string) => void }) {
   const local = useLocalAsset(media.id);
   const [name, setName] = useState(`${nickname}的放映室`); const [isPublic, setPublic] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   return <Modal title="今晚，一起看点什么？" subtitle="创建放映室，让每一次播放都多一份陪伴。" onClose={onClose}><form onSubmit={async e => { e.preventDefault(); setLoading(true); setError(''); try { const r = await api<{ id: string; hostKey: string; seedKey?: string }>('/api/rooms', { method: 'POST', body: JSON.stringify({ name, media, public: isPublic }) }); onCreated(r.id, r.hostKey, r.seedKey); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }}><label className="field-label" htmlFor="room-name">放映室名称</label><input id="room-name" className="text-input" required maxLength={60} value={name} onChange={e => setName(e.target.value)} /><label className="field-label spaced" htmlFor="room-media">今晚的放映内容</label><select id="room-media" className="text-input" value={media.id} onChange={e => onSelect(resources.find(m => m.id === e.target.value)!)}>{resources.map(m => <option key={m.id} value={m.id}>{m.title} · {['video', 'audio', 'local'].includes(m.playbackType) ? '支持同步' : '官方嵌入播放'}</option>)}</select><div className="room-media-preview"><Cover media={media} /><div><strong>{media.title}</strong><p>{media.platform} · {media.duration}</p><span>{media.playbackType === 'embed' ? '支持聊天与语音，播放进度需各自控制' : '支持播放、暂停、进度同步'}</span></div></div>{media.playbackType === 'local' && (!local ? <LocalRestore media={media} /> : <p className="info-box">影片将通过 P2P 按需分享，不上传服务器。请保持本页面打开；朋友拖动进度时会读取相应片段。</p>)}<label className="checkbox-label"><input type="checkbox" checked={isPublic} onChange={e => setPublic(e.target.checked)} /><span>公开放映室<small>让其他同频的人也能发现并加入</small></span></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="button button-primary full-width" disabled={loading || !name.trim() || media.playbackType === 'local' && !local}>{loading ? <LoaderCircle size={17} className="spin" /> : <MonitorPlay size={17} />}创建并进入放映室</button></form></Modal>;
 }
-function DetailModal({ media: originalMedia, nickname, onClose, favorite, onFavorite, onAdd, onRoom, onPlayed, notify }: { media: Media; nickname: string; onClose: () => void; favorite: boolean; onFavorite: () => void; onAdd: () => void; onRoom: (m: Media) => void; onPlayed: () => void; notify: (s: string) => void }) {
+function DetailModal({ media: originalMedia, nickname, onClose, favorite, onFavorite, onAdd, onRoom, onPlayed, onTheater, notify }: { media: Media; nickname: string; onClose: () => void; favorite: boolean; onFavorite: () => void; onAdd: () => void; onRoom: (m: Media) => void; onPlayed: () => void; onTheater: () => void; notify: (s: string) => void }) {
   const [episode, setEpisode] = useState(originalMedia.defaultEpisode || 0);
   const media = originalMedia.episodes?.[episode] ? { ...originalMedia, playbackUrl: originalMedia.episodes[episode].url } : originalMedia;
   const [playing, setPlaying] = useState(originalMedia.kind === '音乐' && originalMedia.playbackType !== 'external'); const [tab, setTab] = useState('简介'); const [comments, setComments] = useState<Comment[]>([]); const [comment, setComment] = useState(''); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  usePlaybackSource(playbackMeta(media), 'detail', playing);
   const played = useRef(onPlayed); played.current = onPlayed;
   useEffect(() => { if (playing) played.current(); }, [playing, episode]);
   useEffect(() => { let active = true; api<Comment[]>(`/api/resources/${media.id}/comments`).then(data => { if (active) setComments(data); }).catch(() => { if (active) setError('评论暂时无法加载'); }); return () => { active = false; }; }, [media.id]);
@@ -264,7 +281,7 @@ function DetailModal({ media: originalMedia, nickname, onClose, favorite, onFavo
         <button className={`icon-button bordered ${favorite ? 'orange-text' : ''}`} aria-label="收藏资源" onClick={onFavorite}><Heart size={18} fill={favorite ? 'currentColor' : 'none'} /></button><button className="icon-button bordered" aria-label="加入播放列表" onClick={onAdd}><Plus size={19} /></button>
       </div>
     </div></>}</div>
-    {playing && <div className="playing-detail-actions"><button className={`button button-outline ${favorite ? 'orange-text' : ''}`} onClick={onFavorite}><Heart size={15} fill={favorite ? 'currentColor' : 'none'} />{favorite ? '已收藏' : '收藏'}</button><button className="button button-outline" onClick={onAdd}><Plus size={16} />加入播放列表</button></div>}
+    {playing && <div className="playing-detail-actions"><button className={`button button-outline ${favorite ? 'orange-text' : ''}`} onClick={onFavorite}><Heart size={15} fill={favorite ? 'currentColor' : 'none'} />{favorite ? '已收藏' : '收藏'}</button><button className="button button-outline" onClick={onAdd}><Plus size={16} />加入播放列表</button><button className="button button-outline" onClick={onTheater}><Maximize2 size={15} />放大播放</button></div>}
     {!!media.episodes?.length && <div className="episode-selector"><label htmlFor="episode-select">{media.kind === '音乐' ? '选曲' : '选集'}</label><select id="episode-select" className="text-input" value={episode} onChange={e => { setEpisode(Number(e.target.value)); setError(''); setPlaying(true); }}>{media.episodes.map((ep, i) => <option key={`${i}-${ep.url}`} value={i}>{ep.title}</option>)}</select><span>{media.episodes.length} {media.kind === '音乐' ? '首' : '集 / 线路'}</span></div>}
     {media.playbackType !== 'local' && <AttachDownloadedFile key={media.playbackUrl || media.id} media={media} />}
     {media.download && <DownloadPanel key={`${media.download.bvid}:${media.episodes?.[episode]?.page || media.download.page}`} media={media} page={media.episodes?.[episode]?.page || media.download.page} />}

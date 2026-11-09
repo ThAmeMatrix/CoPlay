@@ -1,0 +1,18 @@
+{
+  "accelerator": "^(?:(?:Ctrl|Alt|Shift|Super)\\+)+(?:[A-Z0-9]|F(?:[1-9]|1[0-2])|Left|Right|Up|Down|Space|Enter|Escape|Tab|Backspace|Delete|Home|End|PageUp|PageDown|Plus|Minus|Equal|BracketLeft|BracketRight|Semicolon|Quote|Comma|Period|Slash|Backslash)$",
+  "actions": [
+    { "id": "playPause", "label": "播放 / 暂停", "default": "Ctrl+Alt+P" },
+    { "id": "seekBack", "label": "后退 10 秒", "default": "Ctrl+Alt+Left" },
+    { "id": "seekForward", "label": "快进 10 秒", "default": "Ctrl+Alt+Right" },
+    { "id": "previous", "label": "上一项", "default": "Ctrl+Alt+PageUp" },
+    { "id": "next", "label": "下一项", "default": "Ctrl+Alt+PageDown" },
+    { "id": "mute", "label": "静音 / 取消静音", "default": "Ctrl+Alt+M" },
+    { "id": "volumeUp", "label": "调大音量", "default": "Ctrl+Alt+Up" },
+    { "id": "volumeDown", "label": "调小音量", "default": "Ctrl+Alt+Down" }
+  ],
+  "defaults": {
+    "theme": "light",
+    "minimizeToTray": true,
+    "showBubble": true
+  }
+}

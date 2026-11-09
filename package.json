@@ -1,6 +1,6 @@
 {
   "name": "coplay",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "共映 · 影视与音乐资源库",
   "author": "CoPlay",
   "main": "desktop/main.cjs",
@@ -17,6 +17,7 @@
     "test:playlist-search": "electron tests/playlist-search-renderer.cjs",
     "test:usability": "electron tests/playlist-usability-renderer.cjs",
     "check": "tsc -b",
+    "theme:generate": "node scripts/generate-dark-theme.cjs",
     "desktop:runtime": "node node_modules/electron/install.js",
     "desktop": "pnpm build && electron .",
     "desktop:pack": "pnpm build && electron-builder --win portable --x64",
@@ -40,6 +41,7 @@
       "server/**/*",
       "desktop/**/*",
       "scripts/**/*",
+      "shared/**/*",
       "package.json",
       "!server/network.js",
       "!desktop/*.md",

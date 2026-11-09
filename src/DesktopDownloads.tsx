@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowDownToLine, Check, X } from 'lucide-react';
-type DownloadState = { id: string; filename: string; received: number; total: number; state: 'progressing' | 'interrupted' | 'completed' | 'cancelled' };
-declare global {
-  interface Window { coplayDesktop?: { version: string; onDownload: (listener: (state: DownloadState) => void) => () => void } }
-}
+import type { DownloadState } from './desktop-api';
 export default function DesktopDownloads() {
   const [downloads, setDownloads] = useState<DownloadState[]>([]);
   useEffect(() => window.coplayDesktop?.onDownload(state => setDownloads(old => [state, ...old.filter(d => d.id !== state.id)].slice(0, 5))), []);
