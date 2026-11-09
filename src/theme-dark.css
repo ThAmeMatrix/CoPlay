@@ -4,6 +4,7 @@
 :root[data-theme="dark"] *{scrollbar-color:#3a444d transparent}
 :root[data-theme="dark"] input,:root[data-theme="dark"] textarea,:root[data-theme="dark"] select{color-scheme:dark}
 /* src/styles.css */
+:root[data-theme="dark"]{color:#e1e2e4;background:#1b1d1e;--accent:#efaf9f;--accent-dark:#eca290;--accent-text:#da8466;--muted:#b2b7bb;--border:#1e2022;--green:#a7b6af}
 :root[data-theme="dark"] button:focus-visible,
 :root[data-theme="dark"] a:focus-visible{outline:3px solid #efaf9f73}
 :root[data-theme="dark"] input:focus-visible,

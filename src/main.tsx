@@ -12,16 +12,19 @@ applyTheme(readSettings().theme);
 const params = new URLSearchParams(location.search);
 const isBubble = params.get('bubble') === '1';
 const isTheater = params.get('theater') === '1';
+const isLyrics = params.get('lyrics') === '1';
 if (isBubble) document.documentElement.classList.add('bubble-root');
+if (isLyrics) document.documentElement.classList.add('lyrics-root');
 
 playback.setShortcuts(readSettings().shortcuts);
-// The tray bubble is a read-only mirror; only player windows install the observer.
-if (!isBubble) playback.start();
+// The tray bubble and desktop lyrics window are read-only mirrors.
+if (!isBubble && !isLyrics) playback.start();
 
 async function mount() {
   let Component: React.ComponentType;
   if (isBubble) Component = (await import('./Bubble')).default;
   else if (isTheater) Component = (await import('./TheaterStandalone')).default;
+  else if (isLyrics) Component = (await import('./LyricsView')).LyricsWindow;
   else Component = (await import('./App')).default;
   ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><Component /></React.StrictMode>);
 }

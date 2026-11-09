@@ -13,9 +13,11 @@ export interface Settings {
   showBubble: boolean;
   /** Register OS-wide hotkeys in the desktop app. */
   globalShortcuts: boolean;
+  /** Show a floating desktop lyrics window while lyrics are available. */
+  showLyrics: boolean;
 }
 export const defaultSettings: Settings = {
-  theme: 'light', shortcuts: defaultShortcuts, minimizeToTray: true, showBubble: true, globalShortcuts: true,
+  theme: 'light', shortcuts: defaultShortcuts, minimizeToTray: true, showBubble: true, globalShortcuts: true, showLyrics: false,
 };
 
 export function normalizeSettings(value: unknown): Settings {
@@ -26,6 +28,7 @@ export function normalizeSettings(value: unknown): Settings {
     minimizeToTray: source.minimizeToTray !== false,
     showBubble: source.showBubble !== false,
     globalShortcuts: source.globalShortcuts !== false,
+    showLyrics: source.showLyrics === true,
   };
 }
 

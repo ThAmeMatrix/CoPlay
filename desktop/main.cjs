@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain, shell, Tray, Menu, nativeImage, globalShortcut, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { LOOPBACK_ORIGIN, CSP, appUrl, externalUrl, downloadUrl } = require('./security.cjs');
 const shortcutSpec = require('../shared/shortcuts.json');
@@ -14,13 +15,21 @@ let window; let service; let shuttingDown = false; let smokeFinished = false;
 let tray; let bubble; let theater; let forceQuit = false; let bubbleForced = false; let bubbleDismissed = false;
 const acceleratorRe = new RegExp(shortcutSpec.accelerator);
 const ACTIONS = shortcutSpec.actions.map(action => action.id);
-const defaults = { theme: 'light', minimizeToTray: true, showBubble: true, globalShortcuts: true, shortcuts: Object.fromEntries(shortcutSpec.actions.map(action => [action.id, action.default])) };
+const defaults = { theme: 'light', minimizeToTray: true, showBubble: true, globalShortcuts: true, showLyrics: false, shortcuts: Object.fromEntries(shortcutSpec.actions.map(action => [action.id, action.default])) };
 let settings = { ...defaults };
 let playbackState = emptyPlayback();
 let registered = [];
+let lyricsWindow;
+let lyricsDismissed = false;
+let lyricsPayload = emptyLyrics();
+let batchFolder = null;
+let batchExpires = 0;
 
 function emptyPlayback() {
   return { active: false, meta: null, playing: false, currentTime: 0, duration: 0, volume: 1, muted: false, controllable: false, embedded: false };
+}
+function emptyLyrics() {
+  return { enabled: false, mediaId: '', title: '', subtitle: '', source: '', lines: [] };
 }
 function boundedString(value, max) { return typeof value === 'string' ? value.slice(0, max) : ''; }
 function boundedNumber(value, max) { return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, value)) : 0; }
@@ -55,7 +64,22 @@ function sanitizeSettings(value) {
     minimizeToTray: value.minimizeToTray !== false,
     showBubble: value.showBubble !== false,
     globalShortcuts: value.globalShortcuts !== false,
+    showLyrics: value.showLyrics === true,
     shortcuts,
+  };
+}
+/** Lyrics cross into a separate always-on-top window; keep them plain data. */
+function sanitizeLyrics(value) {
+  if (!value || typeof value !== 'object') return emptyLyrics();
+  const lines = Array.isArray(value.lines) ? value.lines.slice(0, 1000) : [];
+  return {
+    enabled: value.enabled === true,
+    mediaId: boundedString(value.mediaId, 128), title: boundedString(value.title, 200),
+    subtitle: boundedString(value.subtitle, 200), source: boundedString(value.source, 60),
+    lines: lines.map(line => ({
+      time: boundedNumber(line?.time, 86400), text: boundedString(line?.text, 300),
+      translation: boundedString(line?.translation, 300),
+    })).filter(line => line.text || line.translation),
   };
 }
 
@@ -98,6 +122,7 @@ function registerShortcuts() {
 
 function bubbleOrigin() { return `${LOOPBACK_ORIGIN}/?bubble=1`; }
 function theaterOrigin() { return `${LOOPBACK_ORIGIN}/?theater=1`; }
+function lyricsOrigin() { return `${LOOPBACK_ORIGIN}/?lyrics=1`; }
 
 function createAuxWindow(url, width, height) {
   const area = screen.getPrimaryDisplay().workArea;
@@ -147,7 +172,41 @@ function updateBubble() {
   if (!win.isVisible()) win.showInactive();
 }
 function broadcastTheme(theme) {
-  for (const win of [bubble, theater]) if (win && !win.isDestroyed()) win.webContents.send('coplay:bubble-theme', theme);
+  for (const win of [bubble, theater, lyricsWindow]) if (win && !win.isDestroyed()) win.webContents.send('coplay:bubble-theme', theme);
+}
+
+function shouldShowLyrics() {
+  return !smoke && !forceQuit && !shuttingDown && settings.showLyrics && !lyricsDismissed &&
+    lyricsPayload.enabled && lyricsPayload.lines.length > 0 && playbackState.active;
+}
+function pushLyricsState() {
+  if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+    lyricsWindow.webContents.send('coplay:lyrics-state', { playback: playbackState, lyrics: lyricsPayload });
+    lyricsWindow.webContents.send('coplay:bubble-theme', settings.theme);
+  }
+}
+function ensureLyricsWindow() {
+  if (lyricsWindow && !lyricsWindow.isDestroyed()) return lyricsWindow;
+  const width = 560, height = 230;
+  lyricsWindow = createAuxWindow(lyricsOrigin(), width, height);
+  const area = screen.getPrimaryDisplay().workArea;
+  lyricsWindow.setBounds({ x: Math.max(area.x, area.x + Math.round((area.width - width) / 2)), y: Math.max(area.y, area.y + area.height - height - 90), width, height });
+  lyricsWindow.setAlwaysOnTop(true, 'floating');
+  // The renderer asks for a replay once its listeners are installed.
+  lyricsWindow.webContents.once('did-finish-load', () => { if (lyricsWindow && !lyricsWindow.isDestroyed()) pushLyricsState(); });
+  lyricsWindow.once('ready-to-show', () => { if (lyricsWindow && !lyricsWindow.isDestroyed() && shouldShowLyrics()) lyricsWindow.showInactive(); });
+  lyricsWindow.on('closed', () => { lyricsWindow = undefined; });
+  return lyricsWindow;
+}
+function updateLyricsWindow() {
+  if (smoke) return;
+  if (!shouldShowLyrics()) {
+    if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.hide();
+    return;
+  }
+  const win = ensureLyricsWindow();
+  pushLyricsState();
+  if (!win.isVisible()) win.showInactive();
 }
 
 function refreshTray() {
@@ -164,6 +223,7 @@ function refreshTray() {
     { label: '快进 10 秒', click: () => sendCommand('seekForward') },
     { type: 'separator' },
     { label: '显示悬浮气泡', type: 'checkbox', checked: settings.showBubble, click: item => { settings.showBubble = item.checked; bubbleForced = item.checked; bubbleDismissed = false; updateBubble(); } },
+    { label: '显示桌面歌词', type: 'checkbox', checked: settings.showLyrics, click: item => { settings.showLyrics = item.checked; lyricsDismissed = false; updateLyricsWindow(); } },
     { label: '缩到任务栏', type: 'checkbox', checked: settings.minimizeToTray, click: item => { settings.minimizeToTray = item.checked; } },
     { type: 'separator' },
     { label: '退出共映', click: () => { forceQuit = true; app.quit(); } },
@@ -231,14 +291,15 @@ else {
       const url = externalUrl(value); if (url) void shell.openExternal(url);
     });
     ipcMain.on('coplay:settings', (event, value) => {
-      if (!validSender(event, window)) return;
+      if (!validSender(event, window) && !validSender(event, theater)) return;
       const previous = settings;
       settings = sanitizeSettings(value);
       // Re-enabling the bubble in settings is an explicit request to show it again.
       if (!previous.showBubble && settings.showBubble) bubbleDismissed = false;
+      if (!previous.showLyrics && settings.showLyrics) lyricsDismissed = false;
       if (window && !window.isDestroyed()) window.setBackgroundColor(settings.theme === 'dark' ? '#12161b' : '#f9faf4');
       registerShortcuts();
-      setupTray(); refreshTray(); updateBubble(); broadcastTheme(settings.theme);
+      setupTray(); refreshTray(); updateBubble(); updateLyricsWindow(); pushLyricsState(); broadcastTheme(settings.theme);
     });
     ipcMain.on('coplay:theme', (event, value) => {
       if (!validSender(event, window)) return;
@@ -250,7 +311,24 @@ else {
     ipcMain.on('coplay:playback-state', (event, value) => {
       if (!validSender(event, window) && !validSender(event, theater)) return;
       playbackState = sanitizePlayback(value);
-      pushBubbleState(); refreshTray(); updateBubble();
+      pushBubbleState(); refreshTray(); updateBubble(); updateLyricsWindow(); pushLyricsState();
+    });
+    ipcMain.on('coplay:lyrics-data', (event, value) => {
+      if (!validSender(event, window) && !validSender(event, theater)) return;
+      lyricsPayload = sanitizeLyrics(value);
+      updateLyricsWindow(); pushLyricsState();
+    });
+    ipcMain.on('coplay:lyrics-ready', event => {
+      if (!validSender(event, lyricsWindow)) return;
+      pushLyricsState();
+    });
+    ipcMain.on('coplay:lyrics-close', event => {
+      if (!validSender(event, lyricsWindow)) return;
+      lyricsDismissed = true;
+      if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.hide();
+      if (window && !window.isDestroyed()) window.webContents.send('coplay:lyrics-dismissed');
+      if (theater && !theater.isDestroyed()) theater.webContents.send('coplay:lyrics-dismissed');
+      refreshTray();
     });
     ipcMain.on('coplay:bubble-command', (event, value) => {
       if (!validSender(event, bubble) || !value || typeof value !== 'object') return;
@@ -280,18 +358,48 @@ else {
       if (theater && !theater.isDestroyed()) theater.close();
     });
     const activeDownloads = new Set();
+    function uniqueSavePath(folder, filename) {
+      const base = path.basename(String(filename || 'video.mp4')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || 'video.mp4';
+      let candidate = path.join(folder, base);
+      if (!fsSync.existsSync(candidate)) return candidate;
+      const dot = base.lastIndexOf('.'), stem = dot > 0 ? base.slice(0, dot) : base, ext = dot > 0 ? base.slice(dot) : '';
+      for (let index = 2; index < 100; index++) {
+        candidate = path.join(folder, `${stem} (${index})${ext}`);
+        if (!fsSync.existsSync(candidate)) return candidate;
+      }
+      return path.join(folder, `${stem}-${Date.now()}${ext}`);
+    }
     session.on('will-download', (event, item, contents) => {
-      if (contents !== window.webContents || !downloadUrl(item.getURL())) { event.preventDefault(); return; }
+      const fromMain = contents === window.webContents;
+      const fromTheater = !!theater && !theater.isDestroyed() && contents === theater.webContents;
+      if ((!fromMain && !fromTheater) || !downloadUrl(item.getURL())) { event.preventDefault(); return; }
       activeDownloads.add(item);
-      item.setSaveDialogOptions({ title: '保存视频到电脑', defaultPath: path.join(app.getPath('downloads'), item.getFilename()), properties: ['createDirectory', 'showOverwriteConfirmation'] });
+      // Batch downloads pick one folder up front; single downloads show a save dialog.
+      if (batchFolder && Date.now() < batchExpires) item.setSavePath(uniqueSavePath(batchFolder, item.getFilename()));
+      else item.setSaveDialogOptions({ title: '保存视频到电脑', defaultPath: path.join(app.getPath('downloads'), item.getFilename()), properties: ['createDirectory', 'showOverwriteConfirmation'] });
       const update = state => {
-        if (window.isDestroyed()) return;
         const received = item.getReceivedBytes(), total = item.getTotalBytes();
-        window.webContents.send('coplay:download', { id: item.getURL(), filename: item.getFilename(), received, total, state });
-        window.setProgressBar(state === 'progressing' && total ? received / total : -1);
+        const payload = { id: item.getURL(), filename: item.getFilename(), received, total, state };
+        for (const win of [window, theater]) if (win && !win.isDestroyed()) win.webContents.send('coplay:download', payload);
+        if (!window.isDestroyed()) window.setProgressBar(state === 'progressing' && total ? received / total : -1);
       };
       item.on('updated', (_event, state) => update(state));
       item.once('done', (_event, state) => { activeDownloads.delete(item); update(state); });
+    });
+    ipcMain.handle('coplay:choose-download-folder', async event => {
+      if (!validSender(event, window) && !validSender(event, theater)) return null;
+      const result = await dialog.showOpenDialog(window, {
+        title: '选择批量下载的保存位置', defaultPath: app.getPath('downloads'),
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (result.canceled || !Array.isArray(result.filePaths) || !result.filePaths[0]) { batchFolder = null; return null; }
+      batchFolder = result.filePaths[0];
+      batchExpires = Date.now() + 60 * 60 * 1000;
+      return batchFolder;
+    });
+    ipcMain.on('coplay:clear-download-folder', event => {
+      if (!validSender(event, window) && !validSender(event, theater)) return;
+      batchFolder = null; batchExpires = 0;
     });
     window.on('close', event => {
       if (!forceQuit && !shuttingDown && !smoke && settings.minimizeToTray && playbackState.active) {
@@ -311,6 +419,7 @@ else {
     window.on('closed', () => {
       if (bubble && !bubble.isDestroyed()) bubble.destroy();
       if (theater && !theater.isDestroyed()) theater.destroy();
+      if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.destroy();
       if (tray && !tray.isDestroyed()) tray.destroy();
       globalShortcut.unregisterAll();
     });

@@ -13,6 +13,7 @@ import { createDownloads } from './downloads.js';
 import { createPlayback } from './playback.js';
 import { createCollections } from './collections.js';
 import { createDownloadedLibrary } from './downloaded-library.js';
+import { createLyrics } from './lyrics.js';
 
 const clean = (value, max = 100) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 function safeUrl(value) { try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; } }
@@ -38,6 +39,7 @@ export async function createApplication({ dataDir = path.resolve('data'), test =
   const sources = await createSources({ dataDir, test });
   const downloadedLibrary = await createDownloadedLibrary({ dataDir });
   const downloads = createDownloads({ library: downloadedLibrary });
+  const lyrics = createLyrics();
   const collections = createCollections();
   const playback = createPlayback();
   const instanceId = randomUUID();
@@ -106,6 +108,45 @@ export async function createApplication({ dataDir = path.resolve('data'), test =
     try { res.json(await downloads.prepare(req.body || {}, abort.signal)); } catch (e) { if (!res.destroyed) res.status(400).json({ error: e.message }); }
   });
   app.get('/api/downloads/:token/file', (req, res) => downloads.send(req, res));
+  app.post('/api/downloads/prepare-batch', async (req, res) => {
+    if (!rate(`download-batch:${req.ip}`, 4)) return res.status(429).json({ error: '批量下载准备太频繁，请稍后再试' });
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length || items.length > 20) return res.status(400).json({ error: '一次最多准备 20 项内容' });
+    const abort = new AbortController(); res.once('close', () => abort.abort());
+    const results = [];
+    for (const item of items) {
+      if (abort.signal.aborted) break;
+      const key = clean(item?.key, 128), bvid = clean(item?.bvid, 24), page = Number(item?.page || 1);
+      if (!/^BV[a-zA-Z0-9]{10}$/.test(bvid)) { results.push({ key, ok: false, error: 'BV 号无效' }); continue; }
+      try {
+        const plan = await downloads.prepare({ bvid, page }, abort.signal, { ttlMs: 60 * 60 * 1000 });
+        results.push({ key, ok: true, plan });
+      } catch (error) { results.push({ key, ok: false, error: clean(error.message, 180) }); }
+    }
+    if (!res.destroyed) res.json({ results });
+  });
+  // GET is a read (playback surfaces must not issue POST requests); POST is kept
+  // for callers that already hold an LRC sheet and just want it parsed.
+  const resolveLyrics = async input => {
+    const source = input.media && typeof input.media === 'object' ? input.media : {};
+    return lyrics.resolve({
+      key: clean(input.key, 160),
+      media: {
+        id: clean(source.id ?? input.id, 128), url: clean(source.url ?? input.url, 2048),
+        playbackUrl: clean(source.playbackUrl ?? input.playbackUrl, 2048),
+        platform: clean(source.platform ?? input.platform, 80), title: clean(source.title ?? input.title, 200),
+      },
+      lrc: typeof input.lrc === 'string' ? input.lrc.slice(0, 256 * 1024) : '',
+      translation: typeof input.translation === 'string' ? input.translation.slice(0, 256 * 1024) : '',
+    });
+  };
+  const lyricsRoute = async (req, res) => {
+    if (!rate(`lyrics:${req.ip}`, 40)) return res.status(429).json({ error: '歌词读取太频繁，请稍后再试' });
+    try { res.json(await resolveLyrics(req.method === 'GET' ? req.query : req.body || {})); }
+    catch (error) { res.status(400).json({ error: clean(error.message, 180) }); }
+  };
+  app.get('/api/lyrics', lyricsRoute);
+  app.post('/api/lyrics', lyricsRoute);
   app.post('/api/playback/bilibili', async (req, res) => {
     if (!rate(`playback:${req.ip}`, 30)) return res.status(429).json({ error: '播放请求过于频繁，请稍后重试' });
     const abort = new AbortController(); res.once('close', () => abort.abort());

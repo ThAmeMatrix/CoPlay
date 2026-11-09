@@ -145,7 +145,10 @@ function main() {
   ];
   let count = 0;
   for (const file of sources) {
-    const text = fs.readFileSync(path.join(root, file), 'utf8');
+    // @import is a statement, not a selector: leaving it in front of :root would
+    // make the parser treat the whole root rule as an at-rule and skip it.
+    const text = fs.readFileSync(path.join(root, file), 'utf8')
+      .split('\n').filter(line => !/^\s*@import\b/.test(line)).join('\n');
     const mediaRules = new Map();
     const plain = [];
     for (const { media, head, body } of parseBlock(text)) {

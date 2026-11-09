@@ -18,7 +18,7 @@ export function createDownloads({ fetcher = safeFetch, streamer = safeStream, no
   const tickets = new Map();
   function cleanup() { for (const [key, value] of tickets) if (value.expiresAt <= now()) tickets.delete(key); }
   return {
-    async prepare(input, signal) {
+    async prepare(input, signal, options = {}) {
       cleanup();
       const page = Number(input.page || 1);
       if (!Number.isInteger(page) || page < 1 || page > 1000) throw new Error('分 P 编号无效');
@@ -44,7 +44,10 @@ export function createDownloads({ fetcher = safeFetch, streamer = safeStream, no
       validMediaResponse(probe); probe.destroy();
       if (signal?.aborted) throw new Error('下载准备已取消');
       while (tickets.size + files.length > 80) tickets.delete(tickets.keys().next().value);
-      const expiresAt = now() + 10 * 60 * 1000;
+      // Batch preparation creates all tickets up front; give those longer to be
+      // consumed than a single interactive download.
+      const ttl = Number.isFinite(options.ttlMs) ? Math.max(60 * 1000, Math.min(options.ttlMs, 60 * 60 * 1000)) : 10 * 60 * 1000;
+      const expiresAt = now() + ttl;
       const group = createHash('sha256').update(`${part.cid}:${files.map(file => file.size).join(',')}`).digest('hex');
       const downloads = files.map((file, segment) => {
         const token = randomBytes(24).toString('hex');

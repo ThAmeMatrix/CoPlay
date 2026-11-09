@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Monitor, Moon, RotateCcw, Sun, X } from 'lucide-react';
+import { Captions, Keyboard, Monitor, Moon, RotateCcw, Sun, X } from 'lucide-react';
 import { Modal } from './components';
 import { acceleratorFromEvent, displayAccelerator, shortcutActions, type ShortcutAction, type ShortcutMap } from './shortcuts';
 import type { Settings, ThemeMode } from './settings';
@@ -50,6 +50,13 @@ export default function SettingsModal({ nickname, onSave, onClose, settings, pat
         {themes.map(theme => <button key={theme.value} className={settings.theme === theme.value ? 'active' : ''} aria-pressed={settings.theme === theme.value}
           onClick={() => patch({ theme: theme.value })}><theme.icon size={15} />{theme.label}</button>)}
       </div>
+    </section>
+
+    <section className="settings-section">
+      <h3><Captions size={16} />桌面歌词</h3>
+      <p>播放带歌词的音乐时，可在桌面显示独立的置顶歌词窗口；没有歌词的作品不会弹出。网页版会在应用内显示歌词浮层。</p>
+      <label className="settings-toggle"><input type="checkbox" checked={settings.showLyrics} onChange={event => patch({ showLyrics: event.target.checked })} />
+        <span><strong>播放时显示歌词{desktop ? '（桌面置顶窗口）' : '（应用内浮层）'}</strong><small>歌词跟随播放进度高亮；关闭歌词窗口也会同时关闭这个选项。</small></span></label>
     </section>
 
     <section className="settings-section">

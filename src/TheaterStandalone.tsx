@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import { Film } from 'lucide-react';
 import TheaterView, { type TheaterSession } from './TheaterView';
 import { normalizePlaybackMode } from './playback-queue';
-import { applyTheme } from './settings';
+import { applyTheme, useSettings } from './settings';
+import DesktopDownloads from './DesktopDownloads';
 import type { Media } from './types';
 
 /** Root of the independent theater BrowserWindow (?theater=1). */
 export default function TheaterStandalone() {
   const [session, setSession] = useState<TheaterSession | null>(null);
+  const [settings, patchSettings] = useSettings();
+  useEffect(() => window.coplayDesktop?.onLyricsDismissed?.(() => patchSettings({ showLyrics: false })), [patchSettings]);
   useEffect(() => {
     try {
       const raw = JSON.parse(localStorage.getItem('coplay:theater-session-v1') || 'null');
@@ -21,5 +24,6 @@ export default function TheaterStandalone() {
     return () => off?.();
   }, []);
   if (!session) return <div className="theater-view"><div className="theater-empty" style={{ margin: 'auto' }}><Film size={32} /><p>没有可播放的内容。请从共映主界面选择一个播放列表。</p></div></div>;
-  return <TheaterView session={session} onClose={() => window.coplayDesktop?.closeTheater?.()} onPlayed={() => {}} onModeChange={() => {}} />;
+  return <><DesktopDownloads /><TheaterView session={session} onClose={() => window.coplayDesktop?.closeTheater?.()} onPlayed={() => {}} onModeChange={() => {}}
+    lyricsEnabled={settings.showLyrics} onToggleLyrics={() => patchSettings({ showLyrics: !settings.showLyrics })} /></>;
 }

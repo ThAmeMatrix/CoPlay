@@ -1,0 +1,28 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { MAX_BATCH, canDownloadMedia, downloadKey, downloadPage, downloadRequest } from '../src/download-rules.ts';
+
+const bvid = 'BV1B7411m7LV';
+const media = (patch = {}) => ({
+  id: 'video-a', title: '测试视频', subtitle: '作者', kind: '视频', platform: '哔哩哔哩',
+  cover: '', duration: '1:00', tags: [], description: '', url: `https://www.bilibili.com/video/${bvid}/`,
+  playbackType: 'embed', download: { provider: 'bilibili', bvid, page: 3, available: true }, ...patch,
+});
+
+test('only B 站公开视频 with a valid BV 号 can be downloaded', () => {
+  assert.equal(canDownloadMedia(media()), true);
+  assert.equal(canDownloadMedia(media({ download: undefined })), false);
+  assert.equal(canDownloadMedia(media({ download: { provider: 'bilibili', bvid: 'BV_invalid', page: 1 } })), false);
+  assert.equal(canDownloadMedia(media({ download: { provider: 'bilibili', bvid, page: 1, available: false } })), false);
+  assert.equal(canDownloadMedia(media({ download: { provider: 'other', bvid, page: 1 } })), false);
+});
+
+test('download page follows the selected episode and keys match the downloaded library', () => {
+  assert.equal(downloadPage(media()), 3);
+  assert.equal(downloadPage(media({ defaultEpisode: 1, episodes: [{ title: 'P1', url: '', page: 1 }, { title: 'P5', url: '', page: 5 }] })), 5);
+  assert.equal(downloadKey(media()), `bili:${bvid}:p3`);
+  assert.deepEqual(downloadRequest(media()), { key: `bili:${bvid}:p3`, bvid, page: 3 });
+  assert.deepEqual(downloadRequest(media({ download: undefined })), { key: `bili:undefined:p1`, bvid: '', page: 1 },
+    'media without download metadata must not throw');
+  assert.equal(MAX_BATCH, 20);
+});

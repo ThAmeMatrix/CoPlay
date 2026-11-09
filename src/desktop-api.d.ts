@@ -8,11 +8,17 @@ export interface DesktopSettings {
   minimizeToTray: boolean;
   showBubble: boolean;
   globalShortcuts: boolean;
+  showLyrics: boolean;
 }
 export interface DownloadState {
   id: string; filename: string; received: number; total: number;
   state: 'progressing' | 'interrupted' | 'completed' | 'cancelled';
 }
+export interface DesktopLyricsPayload {
+  enabled: boolean; mediaId: string; title: string; subtitle: string; source: string;
+  lines: { time: number; text: string; translation: string }[];
+}
+export interface DesktopLyricsState { playback: PlaybackSnapshot; lyrics: DesktopLyricsPayload }
 
 declare global {
   interface Window {
@@ -35,6 +41,13 @@ declare global {
       openTheater?: () => void;
       closeTheater?: () => void;
       onBubbleCommand?: (listener: (command: DesktopCommand) => void) => () => void;
+      publishLyrics?: (payload: DesktopLyricsPayload) => void;
+      onLyricsData?: (listener: (state: DesktopLyricsState) => void) => () => void;
+      lyricsReady?: () => void;
+      lyricsClose?: () => void;
+      onLyricsDismissed?: (listener: () => void) => () => void;
+      chooseDownloadFolder?: () => Promise<string | null>;
+      clearDownloadFolder?: () => void;
     };
   }
 }

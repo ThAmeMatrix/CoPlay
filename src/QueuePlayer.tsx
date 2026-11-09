@@ -8,10 +8,12 @@ import { bilibiliPlaybackTarget } from './bilibili-player';
 import { useLocalAsset } from './local-media';
 import { downloadedKey, useDownloadedLibrary } from './downloaded-media';
 import PlaybackModeSelect from './PlaybackModeSelect';
+import LyricsControl from './LyricsView';
+import { DownloadButton } from './DownloadActions';
 import { mediaMatchesSearch } from './playlist-search';
 import { canStepQueue, changeQueueMode, createQueue, playbackModes, selectQueueItem, stepQueue, type PlaybackMode } from './playback-queue';
 
-export default function QueuePlayer({ title, items, initialIndex, mode, onModeChange, onClose, onPlayed, onTheater }: { title: string; items: Media[]; initialIndex?: number; mode: PlaybackMode; onModeChange: (mode: PlaybackMode) => void; onClose: () => void; onPlayed: (m: Media) => void; onTheater?: (index: number) => void }) {
+export default function QueuePlayer({ title, items, initialIndex, mode, onModeChange, onClose, onPlayed, onTheater, lyricsEnabled, onToggleLyrics, notify }: { title: string; items: Media[]; initialIndex?: number; mode: PlaybackMode; onModeChange: (mode: PlaybackMode) => void; onClose: () => void; onPlayed: (m: Media) => void; onTheater?: (index: number) => void; lyricsEnabled: boolean; onToggleLyrics: () => void; notify?: (text: string) => void }) {
   const [state, setState] = useState(() => createQueue(items.length, mode, initialIndex));
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -46,6 +48,7 @@ export default function QueuePlayer({ title, items, initialIndex, mode, onModeCh
       <PlaybackModeSelect label="队列播放规则" value={mode} onChange={value => { setState(current => changeQueueMode(current, items.length)); onModeChange(value); }} />
       <div><button className="icon-button bordered" aria-label="上一项" disabled={!canStepQueue(state, items.length, mode, 'previous')} onClick={() => step('previous')}><ChevronLeft size={19} /></button><button className="icon-button bordered" aria-label="下一项" disabled={!canStepQueue(state, items.length, mode, 'next')} onClick={() => step('next')}><ChevronRight size={19} /></button>{onTheater && <button className="button button-outline" aria-label="放大播放" onClick={() => onTheater(state.index)}><Maximize2 size={15} />放大播放</button>}</div>
     </div>
+    <div className="queue-extra-actions"><DownloadButton media={media} notify={notify} /><LyricsControl media={media} enabled={lyricsEnabled} onToggle={onToggleLyrics} /></div>
     <p className="queue-rule-description" role="status"><ListMusic size={14} />{state.finished ? '列表已播放完毕。' : playbackModes.find(value => value.value === mode)?.description}{state.finished && <button className="text-link" onClick={() => select(0)}><RotateCcw size={14} />重新播放</button>}</p>
     {media.playbackType === 'embed' && !localCopy && <p className="queue-platform-notice">{bilibiliPlaybackTarget(media.playbackUrl)?.bvid ? '本机播放支持以上规则；切到官方播放器后，需手动选择上一项或下一项。' : '该平台播放器不提供播放结束通知，需手动选择上一项或下一项；单曲重播可点击队列中的当前项。'}</p>}
     {error && <p className="form-error" role="alert">{error}</p>}

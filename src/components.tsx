@@ -12,9 +12,16 @@ export function Cover({ media, className = '' }: { media: Pick<Media, 'cover' | 
     <div className="cover-fallback"><Film size={30} /><span>{media.title}</span></div>
   </div>;
 }
-export function MediaCard({ media, onOpen, onAdd, onFavorite, favorite }: { media: Media; onOpen: () => void; onAdd: () => void; onFavorite: () => void; favorite: boolean }) {
-  return <article className="media-card">
+export function MediaCard({ media, onOpen, onAdd, onFavorite, favorite, selection }: {
+  media: Media; onOpen: () => void; onAdd: () => void; onFavorite: () => void; favorite: boolean;
+  selection?: { selected: boolean; disabled: boolean; onToggle: () => void };
+}) {
+  return <article className={`media-card ${selection ? 'batch-selectable' : ''} ${selection?.selected ? 'batch-selected' : ''}`}>
     <div className="poster-wrap">
+      {selection && <label className="batch-check" title={selection.disabled ? '这个来源暂不支持下载' : '选择此项下载'}>
+        <input type="checkbox" checked={selection.selected} disabled={selection.disabled} onChange={selection.onToggle} aria-label={`选择${media.title}用于批量下载`} />
+        <span>{selection.disabled ? '暂不支持' : '选择下载'}</span>
+      </label>}
       <button className="poster-button" onClick={onOpen} aria-label={`查看${media.title}`}>
         <Cover media={media} />
         {media.rating && <span className="rating"><Star size={11} fill="currentColor" />{media.rating}</span>}

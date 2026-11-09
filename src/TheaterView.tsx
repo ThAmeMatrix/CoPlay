@@ -4,6 +4,8 @@ import { Cover, PlatformIcon } from './components';
 import { ResourcePlayer } from './MediaPlayer';
 import PlaybackControls from './PlaybackControls';
 import PlaybackModeSelect from './PlaybackModeSelect';
+import LyricsControl from './LyricsView';
+import { DownloadButton } from './DownloadActions';
 import { playbackMeta, usePlaybackSource, useQueueHandlers } from './playback';
 import { canStepQueue, changeQueueMode, createQueue, selectQueueItem, stepQueue, type PlaybackMode } from './playback-queue';
 import { mediaMatchesSearch } from './playlist-search';
@@ -12,9 +14,10 @@ import type { Media } from './types';
 export interface TheaterSession { title: string; items: Media[]; index: number; mode: PlaybackMode }
 
 /** Dedicated playback screen: player left, directory right, page/direct fullscreen. */
-export default function TheaterView({ session, onClose, onPlayed, onModeChange, onDetach }: {
+export default function TheaterView({ session, onClose, onPlayed, onModeChange, onDetach, lyricsEnabled = false, onToggleLyrics = () => {}, notify }: {
   session: TheaterSession; onClose: () => void; onPlayed: (media: Media) => void;
   onModeChange: (mode: PlaybackMode) => void; onDetach?: () => void;
+  lyricsEnabled?: boolean; onToggleLyrics?: () => void; notify?: (text: string) => void;
 }) {
   const { items, title } = session;
   const [state, setState] = useState(() => createQueue(items.length, session.mode, session.index));
@@ -79,6 +82,7 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
             <PlaybackModeSelect label="队列播放规则" value={mode} onChange={value => { setState(current => changeQueueMode(current, items.length)); setMode(value); onModeChange(value); }} />
             <div><button className="icon-button bordered" aria-label="上一项" disabled={!canStepQueue(state, items.length, mode, 'previous')} onClick={() => step('previous')}><ChevronLeft size={17} /></button><button className="icon-button bordered" aria-label="下一项" disabled={!canStepQueue(state, items.length, mode, 'next')} onClick={() => step('next')}><ChevronRight size={17} /></button></div>
           </div>
+          {media && <div className="theater-extra-actions"><DownloadButton media={media} notify={notify} /><LyricsControl media={media} enabled={lyricsEnabled} onToggle={onToggleLyrics} /></div>}
           {error && <p className="form-error" role="alert">{error}</p>}
         </>}
       </div>

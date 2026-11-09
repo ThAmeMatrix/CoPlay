@@ -8,7 +8,7 @@ function on(channel, callback) {
 }
 
 contextBridge.exposeInMainWorld('coplayDesktop', Object.freeze({
-  version: '1.5.0',
+  version: '1.6.0',
   onDownload: callback => on('coplay:download', callback),
   publishPlayback: state => ipcRenderer.send('coplay:playback-state', state),
   onCommand: callback => on('coplay:command', callback),
@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld('coplayDesktop', Object.freeze({
   bubbleCommand: (action, value) => ipcRenderer.send('coplay:bubble-command', { action, value }),
   bubbleShowMain: () => ipcRenderer.send('coplay:bubble-show-main'),
   bubbleHide: () => ipcRenderer.send('coplay:bubble-hide'),
+  publishLyrics: payload => ipcRenderer.send('coplay:lyrics-data', payload),
+  onLyricsData: callback => on('coplay:lyrics-state', callback),
+  lyricsReady: () => ipcRenderer.send('coplay:lyrics-ready'),
+  lyricsClose: () => ipcRenderer.send('coplay:lyrics-close'),
+  onLyricsDismissed: callback => on('coplay:lyrics-dismissed', () => callback()),
+  chooseDownloadFolder: () => ipcRenderer.invoke('coplay:choose-download-folder'),
+  clearDownloadFolder: () => ipcRenderer.send('coplay:clear-download-folder'),
 }));
 
 // Only real clicks in the app's main frame can request the system browser.
