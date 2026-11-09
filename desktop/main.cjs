@@ -15,18 +15,35 @@ let window; let service; let shuttingDown = false; let smokeFinished = false;
 let tray; let bubble; let theater; let forceQuit = false; let bubbleForced = false; let bubbleDismissed = false;
 const acceleratorRe = new RegExp(shortcutSpec.accelerator);
 const ACTIONS = shortcutSpec.actions.map(action => action.id);
-const defaults = { theme: 'light', minimizeToTray: true, showBubble: true, globalShortcuts: true, showLyrics: false, shortcuts: Object.fromEntries(shortcutSpec.actions.map(action => [action.id, action.default])) };
+const defaults = { theme: 'light', minimizeToTray: true, showBubble: true, globalShortcuts: true, showLyrics: false, downloadDir: '', shortcuts: Object.fromEntries(shortcutSpec.actions.map(action => [action.id, action.default])) };
 let settings = { ...defaults };
 let playbackState = emptyPlayback();
 let registered = [];
 let lyricsWindow;
 let lyricsDismissed = false;
 let lyricsPayload = emptyLyrics();
-let batchFolder = null;
-let batchExpires = 0;
+// Downloads go to a single, persisted destination chosen in Preferences.
+// No native save dialog is shown for individual or batch downloads.
+let savedDownloadDir = '';
+function downloadPrefsFile() { return path.join(app.getPath('userData'), 'download-dir.json'); }
+async function loadDownloadDir() {
+  try {
+    const raw = JSON.parse(await fs.readFile(downloadPrefsFile(), 'utf8'));
+    if (typeof raw.dir === 'string' && path.isAbsolute(raw.dir) && raw.dir.length <= 260) savedDownloadDir = raw.dir;
+  } catch { /* first run */ }
+}
+async function storeDownloadDir(dir) {
+  savedDownloadDir = dir || '';
+  try { await fs.writeFile(downloadPrefsFile(), JSON.stringify({ dir: savedDownloadDir })); } catch { /* read-only profile */ }
+}
+function downloadFolder() {
+  const chosen = settings.downloadDir || savedDownloadDir || app.getPath('downloads');
+  try { fsSync.mkdirSync(chosen, { recursive: true }); } catch { /* fall back below */ }
+  return fsSync.existsSync(chosen) ? chosen : app.getPath('downloads');
+}
 
 function emptyPlayback() {
-  return { active: false, meta: null, playing: false, currentTime: 0, duration: 0, volume: 1, muted: false, controllable: false, embedded: false };
+  return { active: false, meta: null, playing: false, currentTime: 0, duration: 0, volume: 1, muted: false, controllable: false, embedded: false, mode: '列表播放' };
 }
 function emptyLyrics() {
   return { enabled: false, mediaId: '', title: '', subtitle: '', source: '', lines: [] };
@@ -49,6 +66,7 @@ function sanitizePlayback(value) {
     currentTime: boundedNumber(value.currentTime, 86400), duration: boundedNumber(value.duration, 86400),
     volume: boundedNumber(value.volume, 1), muted: value.muted === true,
     controllable: value.controllable === true, embedded: value.embedded === true,
+    mode: boundedString(value.mode, 40) || '列表播放',
   };
 }
 function sanitizeSettings(value) {
@@ -65,6 +83,7 @@ function sanitizeSettings(value) {
     showBubble: value.showBubble !== false,
     globalShortcuts: value.globalShortcuts !== false,
     showLyrics: value.showLyrics === true,
+    downloadDir: typeof value.downloadDir === 'string' && value.downloadDir.length <= 260 && path.isAbsolute(value.downloadDir) ? value.downloadDir : '',
     shortcuts,
   };
 }
@@ -142,7 +161,7 @@ function createAuxWindow(url, width, height) {
 }
 function ensureBubble() {
   if (bubble && !bubble.isDestroyed()) return bubble;
-  bubble = createAuxWindow(bubbleOrigin(), 348, 150);
+  bubble = createAuxWindow(bubbleOrigin(), 360, 168);
   // The renderer cannot receive IPC until it has loaded; replay the latest state then.
   bubble.webContents.once('did-finish-load', () => {
     if (bubble && !bubble.isDestroyed()) {
@@ -159,7 +178,7 @@ function shouldShowBubble() {
     (bubbleForced || !window || window.isDestroyed() || !window.isVisible());
 }
 function pushBubbleState() {
-  if (bubble && !bubble.isDestroyed()) bubble.webContents.send('coplay:bubble-state', playbackState);
+  if (bubble && !bubble.isDestroyed()) bubble.webContents.send('coplay:bubble-state', { ...playbackState, shortcuts: settings.shortcuts });
 }
 function updateBubble() {
   if (smoke) return;
@@ -266,6 +285,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { showMain(); if (window && !window.isDestroyed()) window.focus(); });
   app.whenReady().then(async () => {
+    await loadDownloadDir();
     const root = app.getAppPath();
     const { createApplication } = await import(pathToFileURL(path.join(root, 'server/app.js')).href);
     const { default: express } = await import('express');
@@ -333,7 +353,7 @@ else {
     ipcMain.on('coplay:bubble-command', (event, value) => {
       if (!validSender(event, bubble) || !value || typeof value !== 'object') return;
       const action = boundedString(value.action, 24);
-      if (!ACTIONS.includes(action) && !['seekTo', 'setVolume', 'toggleFullscreen'].includes(action)) return;
+      if (!ACTIONS.includes(action) && !['seekTo', 'setVolume', 'toggleFullscreen', 'cycleMode'].includes(action)) return;
       sendCommand(action, boundedNumber(value.value, 86400));
     });
     ipcMain.on('coplay:bubble-ready', event => {
@@ -374,9 +394,8 @@ else {
       const fromTheater = !!theater && !theater.isDestroyed() && contents === theater.webContents;
       if ((!fromMain && !fromTheater) || !downloadUrl(item.getURL())) { event.preventDefault(); return; }
       activeDownloads.add(item);
-      // Batch downloads pick one folder up front; single downloads show a save dialog.
-      if (batchFolder && Date.now() < batchExpires) item.setSavePath(uniqueSavePath(batchFolder, item.getFilename()));
-      else item.setSaveDialogOptions({ title: '保存视频到电脑', defaultPath: path.join(app.getPath('downloads'), item.getFilename()), properties: ['createDirectory', 'showOverwriteConfirmation'] });
+      // Every download goes to the directory chosen in Preferences — no save dialog.
+      item.setSavePath(uniqueSavePath(downloadFolder(), item.getFilename()));
       const update = state => {
         const received = item.getReceivedBytes(), total = item.getTotalBytes();
         const payload = { id: item.getURL(), filename: item.getFilename(), received, total, state };
@@ -386,20 +405,18 @@ else {
       item.on('updated', (_event, state) => update(state));
       item.once('done', (_event, state) => { activeDownloads.delete(item); update(state); });
     });
+    // Called once from Preferences, never from the download flow.
     ipcMain.handle('coplay:choose-download-folder', async event => {
       if (!validSender(event, window) && !validSender(event, theater)) return null;
       const result = await dialog.showOpenDialog(window, {
-        title: '选择批量下载的保存位置', defaultPath: app.getPath('downloads'),
+        title: '选择下载保存位置', defaultPath: settings.downloadDir || savedDownloadDir || app.getPath('downloads'),
         properties: ['openDirectory', 'createDirectory'],
       });
-      if (result.canceled || !Array.isArray(result.filePaths) || !result.filePaths[0]) { batchFolder = null; return null; }
-      batchFolder = result.filePaths[0];
-      batchExpires = Date.now() + 60 * 60 * 1000;
-      return batchFolder;
-    });
-    ipcMain.on('coplay:clear-download-folder', event => {
-      if (!validSender(event, window) && !validSender(event, theater)) return;
-      batchFolder = null; batchExpires = 0;
+      if (result.canceled || !Array.isArray(result.filePaths) || !result.filePaths[0]) return null;
+      const dir = result.filePaths[0];
+      await storeDownloadDir(dir);
+      settings.downloadDir = dir;
+      return dir;
     });
     window.on('close', event => {
       if (!forceQuit && !shuttingDown && !smoke && settings.minimizeToTray && playbackState.active) {

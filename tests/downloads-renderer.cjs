@@ -30,7 +30,10 @@ app.whenReady().then(async () => {
   api.use(express.json());
   api.get('/api/sources', (_q, r) => r.json([]));
   api.get('/api/catalog-cache', (_q, r) => r.json({ pages: 0, bytes: 0, updatedAt: 0 }));
-  api.get('/api/downloaded-media', (_q, r) => r.json([]));
+  api.get('/api/downloaded-media', (_q, r) => r.json([{
+    key: 'bili:BV4B7411m7LV:p1', title: '已下载内容', page: 1, savedAt: Date.now(), complete: true,
+    files: [{ id: '1', filename: 'saved.mp4', size: 8, segment: 0, url: `/api/downloaded-media/${'d'.repeat(48)}/file`, available: true }],
+  }]));
   api.get('/api/resources/:id/comments', (_q, r) => r.json([]));
   api.get('/tone.wav', (_q, r) => r.type('audio/wav').send(Buffer.alloc(1024)));
   api.get('/api/lyrics', (_q, r) => r.json({
@@ -77,11 +80,12 @@ app.whenReady().then(async () => {
     { ...base, id: 'dl-a', title: '可下载一' },
     { ...base, id: 'dl-b', title: '可下载二', download: { provider: 'bilibili', bvid: 'BV2B7411m7LV', page: 1, available: true } },
     { ...base, id: 'dl-c', title: '不支持下载', download: undefined },
+    { ...base, id: 'dl-d', title: '已有本地副本', download: { provider: 'bilibili', bvid: 'BV4B7411m7LV', page: 1, available: true } },
   ];
   await window.loadURL(origin);
   await run(`await waitFor(()=>document.querySelector('.sidebar'),'mount');await tick();
     localStorage.setItem('coplay:resources-v1',JSON.stringify(${JSON.stringify(resources)}));
-    localStorage.setItem('coplay:playlists-v1',JSON.stringify([{id:'weekend',title:'下载测试列表',description:'批量下载与歌词',ids:['dl-a','dl-b','dl-c'],color:'#b6bfb5'}]));`);
+    localStorage.setItem('coplay:playlists-v1',JSON.stringify([{id:'weekend',title:'下载测试列表',description:'批量下载与歌词',ids:['dl-a','dl-b','dl-c','dl-d'],color:'#b6bfb5'}]));`);
   await window.loadURL(origin);
 
   // Playlist batch selection
@@ -89,12 +93,12 @@ app.whenReady().then(async () => {
     [...document.querySelectorAll('.playlist-nav button')].find(b=>b.textContent.includes('下载测试列表')).click();await tick();
     await click('批量下载','.playlist-controls button');
     await waitFor(()=>document.querySelector('.batch-panel'),'batch panel');
-    check(document.querySelectorAll('.batch-check').length===3,'three cards should show a selection box');
-    check(document.querySelectorAll('.batch-check input:disabled').length===1,'unsupported item must be disabled');
-    check([...document.querySelectorAll('.media-card')].length===3,'media cards missing');`);
-  results.push({ name: 'playlist batch mode shows a selection box per card and disables unsupported sources', ok: true });
+    check(document.querySelectorAll('.batch-check').length===4,'four cards should show a selection box');
+    check(document.querySelectorAll('.batch-check input:disabled').length===2,'unsupported and already-downloaded items must be disabled');
+    check([...document.querySelectorAll('.media-card')].length===4,'media cards missing');`);
+  results.push({ name: 'playlist batch mode disables unsupported sources and completed local copies', ok: true });
 
-  await run(`await click('全选可下载','.batch-actions button');await tick();
+  await run(`await click('全选待下载','.batch-actions button');await tick();
     check(document.querySelectorAll('.batch-check input:checked').length===2,'only downloadable items are selectable');
     check(document.querySelectorAll('.media-card.batch-selected').length===2,'selected cards are highlighted');
     await click('下载选中','.batch-actions button');

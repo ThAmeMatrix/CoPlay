@@ -201,3 +201,75 @@
 .batch-check input{accent-color:var(--accent);width:14px;height:14px;margin:0}
 .batch-check:has(input:disabled){opacity:.62;cursor:not-allowed}
 @media(max-width:550px){.batch-check span{display:none}.batch-check{padding:7px}}
+
+/* Preferences: one-time download destination, no per-download dialog. */
+.download-dir-row{display:flex;align-items:center;flex-wrap:wrap;gap:9px}
+.download-dir-row code{flex:1;min-width:0;padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.download-dir-row .button{font-size:12px;padding:8px 11px}
+
+/* Theater: make sure every kind of player fills the stage. */
+.theater-stage>*{max-width:100%;max-height:100%}
+.theater-stage .platform-music-player{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#101816}
+.theater-stage .platform-music-player iframe{flex:1;min-height:0;height:auto}
+.theater-stage .native-audio-player{height:100%}
+
+/* Compact transport: volume stays adjustable in the tray bubble. */
+.playback-controls.compact .playback-volume>input[type=range]{width:54px}
+.bubble-lower{display:flex;flex-direction:column;gap:2px;margin-top:auto}
+.bubble-mode{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--text-muted);font-size:11px}
+.bubble-mode:hover{color:var(--accent);border-color:var(--accent)}
+.bubble-window .playback-controls.compact .playback-buttons{justify-content:center}
+
+/* Persistent bottom player dock (desktop app). */
+.player-dock{position:fixed;left:var(--sidebar-width);right:0;bottom:0;height:88px;z-index:90;display:grid;grid-template-columns:112px minmax(120px,210px) minmax(220px,1fr) auto;align-items:center;gap:14px;padding:10px 18px;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -6px 22px #10203012;color:var(--text)}
+.app-shell.dock-visible .main-content{padding-bottom:110px}
+.dock-stage{width:112px;height:66px;border-radius:7px;overflow:hidden;background:#101816;display:flex;align-items:center;justify-content:center}
+.dock-stage>*{width:100%;height:100%}
+.dock-stage video,.dock-stage iframe,.dock-stage img{border:0;width:100%;height:100%;object-fit:cover}
+.dock-stage .native-audio-player{padding:0;gap:0;background:#101816;flex-wrap:nowrap}
+.dock-stage .native-audio-player .audio-art,.dock-stage .native-audio-player .audio-info>strong,.dock-stage .native-audio-player .audio-info>span,.dock-stage .native-audio-player .text-link{display:none}
+.dock-stage .native-audio-player .audio-info{width:100%;flex:1;min-width:0}
+.dock-stage .native-audio-player audio{width:100%;height:42px;margin:0}
+.dock-stage .bili-player-toolbar,.dock-stage .bili-player-notice,.dock-stage .downloaded-player-label,.dock-stage .local-copy-status{display:none}
+.dock-info{min-width:0}
+.dock-info strong{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dock-info small{display:block;margin-top:5px;font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dock-controls{min-width:0}
+.dock-controls .playback-controls{gap:4px}
+.dock-controls .playback-progress{font-size:11px}
+.dock-controls .playback-buttons{gap:2px}
+.dock-controls .playback-buttons .icon-button{width:30px;height:30px}
+.dock-controls .playback-play{width:34px;height:34px}
+.dock-controls .playback-volume>input[type=range]{width:64px}
+.dock-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.dock-actions .icon-button{width:32px;height:32px;color:var(--text-muted)}
+.dock-actions .icon-button:hover,.dock-actions .icon-button.selected{background:var(--tint);color:var(--accent-text)}
+.dock-actions .download-action .button{font-size:0;gap:0;padding:8px;width:32px;height:32px;justify-content:center}
+.dock-actions .download-action svg{width:16px;height:16px}
+.dock-actions .lyrics-toggle{font-size:0;gap:0;padding:8px;width:32px;height:32px;justify-content:center}
+.dock-actions .lyrics-toggle svg{width:16px;height:16px}
+.dock-playlist{position:absolute;left:18px;bottom:calc(100% + 8px);width:min(360px,calc(100vw - 40px));max-height:330px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:11px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.dock-playlist>header{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--line);flex-shrink:0}
+.dock-playlist>header strong{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dock-playlist>header span{font-size:11px;color:var(--text-muted);white-space:nowrap}
+.dock-playlist>header .text-link{font-size:11px;white-space:nowrap}
+.dock-playlist-items{overflow:auto;padding:6px}
+.dock-playlist-items>button{display:flex;align-items:center;gap:9px;width:100%;padding:8px 9px;border-radius:7px;text-align:left;font-size:12px;color:var(--text)}
+.dock-playlist-items>button:hover{background:var(--surface-2)}
+.dock-playlist-items>button.active{background:var(--tint);color:var(--accent-text)}
+.dock-playlist-items>button>span:first-child{width:18px;flex-shrink:0;color:var(--text-muted);text-align:center}
+.dock-playlist-items>button strong{flex:1;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dock-playlist-items>button small{color:var(--text-muted);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1000px){
+  .player-dock{grid-template-columns:92px minmax(90px,150px) minmax(180px,1fr) auto;gap:10px;padding:8px 12px}
+  .dock-stage{width:92px;height:56px}
+  .dock-actions .playback-mode-select{display:none}
+}
+@media(max-width:760px){
+  .player-dock{left:0;height:78px;grid-template-columns:76px minmax(80px,1fr) auto;gap:9px;padding:8px 10px}
+  .dock-stage{width:76px;height:52px}
+  .dock-controls{grid-column:1/-1;grid-row:2}
+  .player-dock{height:auto;min-height:112px}
+  .dock-info small{display:none}
+  .app-shell.dock-visible .main-content{padding-bottom:132px}
+}

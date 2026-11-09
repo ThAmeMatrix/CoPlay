@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Captions, Keyboard, Monitor, Moon, RotateCcw, Sun, X } from 'lucide-react';
+import { Captions, FolderOpen, HardDriveDownload, Keyboard, Monitor, Moon, RotateCcw, Sun, X } from 'lucide-react';
 import { Modal } from './components';
 import { acceleratorFromEvent, displayAccelerator, shortcutActions, type ShortcutAction, type ShortcutMap } from './shortcuts';
 import type { Settings, ThemeMode } from './settings';
@@ -17,6 +17,7 @@ export default function SettingsModal({ nickname, onSave, onClose, settings, pat
 }) {
   const [name, setName] = useState(nickname);
   const [capturing, setCapturing] = useState<ShortcutAction | null>(null);
+  const [pickingFolder, setPickingFolder] = useState(false);
   const captureRef = useRef<ShortcutAction | null>(null);
   captureRef.current = capturing;
 
@@ -79,6 +80,23 @@ export default function SettingsModal({ nickname, onSave, onClose, settings, pat
       </div>
       {!!conflicts.length && <p className="shortcut-conflicts" role="alert">以下组合键已被系统或其他程序占用：{conflicts.join('、')}。请改成其他组合键。</p>}
     </section>
+
+    {desktop && <section className="settings-section">
+      <h3><HardDriveDownload size={16} />下载位置</h3>
+      <p>所有单个与批量下载会直接保存到下面的文件夹，不会每次弹窗询问。已有本地副本的内容会自动跳过，不会重复下载。</p>
+      <div className="download-dir-row">
+        <code title={settings.downloadDir || '系统默认下载文件夹'}>{settings.downloadDir || '系统默认下载文件夹'}</code>
+        <button className="button button-outline" disabled={pickingFolder} onClick={async () => {
+          if (!window.coplayDesktop?.chooseDownloadFolder) return;
+          setPickingFolder(true);
+          try {
+            const folder = await window.coplayDesktop.chooseDownloadFolder();
+            if (folder) patch({ downloadDir: folder });
+          } finally { setPickingFolder(false); }
+        }}><FolderOpen size={15} />{pickingFolder ? '选择中…' : '更改文件夹'}</button>
+        {settings.downloadDir && <button className="text-link" onClick={() => patch({ downloadDir: '' })}>恢复默认</button>}
+      </div>
+    </section>}
 
     {desktop && <section className="settings-section">
       <h3><Monitor size={16} />桌面行为</h3>

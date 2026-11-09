@@ -15,9 +15,11 @@ export interface Settings {
   globalShortcuts: boolean;
   /** Show a floating desktop lyrics window while lyrics are available. */
   showLyrics: boolean;
+  /** Desktop download destination. Empty means the system Downloads folder. */
+  downloadDir: string;
 }
 export const defaultSettings: Settings = {
-  theme: 'light', shortcuts: defaultShortcuts, minimizeToTray: true, showBubble: true, globalShortcuts: true, showLyrics: false,
+  theme: 'light', shortcuts: defaultShortcuts, minimizeToTray: true, showBubble: true, globalShortcuts: true, showLyrics: false, downloadDir: '',
 };
 
 export function normalizeSettings(value: unknown): Settings {
@@ -29,6 +31,7 @@ export function normalizeSettings(value: unknown): Settings {
     showBubble: source.showBubble !== false,
     globalShortcuts: source.globalShortcuts !== false,
     showLyrics: source.showLyrics === true,
+    downloadDir: typeof source.downloadDir === 'string' && source.downloadDir.length <= 260 ? source.downloadDir : '',
   };
 }
 

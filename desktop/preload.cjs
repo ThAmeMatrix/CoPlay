@@ -8,7 +8,7 @@ function on(channel, callback) {
 }
 
 contextBridge.exposeInMainWorld('coplayDesktop', Object.freeze({
-  version: '1.6.0',
+  version: '1.7.0',
   onDownload: callback => on('coplay:download', callback),
   publishPlayback: state => ipcRenderer.send('coplay:playback-state', state),
   onCommand: callback => on('coplay:command', callback),
@@ -31,7 +31,6 @@ contextBridge.exposeInMainWorld('coplayDesktop', Object.freeze({
   lyricsClose: () => ipcRenderer.send('coplay:lyrics-close'),
   onLyricsDismissed: callback => on('coplay:lyrics-dismissed', () => callback()),
   chooseDownloadFolder: () => ipcRenderer.invoke('coplay:choose-download-folder'),
-  clearDownloadFolder: () => ipcRenderer.send('coplay:clear-download-folder'),
 }));
 
 // Only real clicks in the app's main frame can request the system browser.

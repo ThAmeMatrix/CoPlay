@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, ListMusic, LocateFixed, Maximize2, Play, Rot
 import { Modal, PlatformIcon } from './components';
 import type { Media } from './types';
 import { ResourcePlayer } from './MediaPlayer';
-import { playbackMeta, usePlaybackSource, useQueueHandlers } from './playback';
+import { playbackMeta, usePlaybackSource, usePlaybackMode, useQueueHandlers } from './playback';
 import { bilibiliPlaybackTarget } from './bilibili-player';
 import { useLocalAsset } from './local-media';
 import { downloadedKey, useDownloadedLibrary } from './downloaded-media';
@@ -13,7 +13,7 @@ import { DownloadButton } from './DownloadActions';
 import { mediaMatchesSearch } from './playlist-search';
 import { canStepQueue, changeQueueMode, createQueue, playbackModes, selectQueueItem, stepQueue, type PlaybackMode } from './playback-queue';
 
-export default function QueuePlayer({ title, items, initialIndex, mode, onModeChange, onClose, onPlayed, onTheater, lyricsEnabled, onToggleLyrics, notify }: { title: string; items: Media[]; initialIndex?: number; mode: PlaybackMode; onModeChange: (mode: PlaybackMode) => void; onClose: () => void; onPlayed: (m: Media) => void; onTheater?: (index: number) => void; lyricsEnabled: boolean; onToggleLyrics: () => void; notify?: (text: string) => void }) {
+export default function QueuePlayer({ title, items, initialIndex, mode, onModeChange, onClose, onPlayed, onTheater, onIndexChange, lyricsEnabled, onToggleLyrics, notify }: { title: string; items: Media[]; initialIndex?: number; mode: PlaybackMode; onModeChange: (mode: PlaybackMode) => void; onClose: () => void; onPlayed: (m: Media) => void; onTheater?: (index: number) => void; onIndexChange?: (index: number) => void; lyricsEnabled: boolean; onToggleLyrics: () => void; notify?: (text: string) => void }) {
   const [state, setState] = useState(() => createQueue(items.length, mode, initialIndex));
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -38,14 +38,18 @@ export default function QueuePlayer({ title, items, initialIndex, mode, onModeCh
   useEffect(() => { setError(''); played.current(media); }, [media, state.version]);
   const step = (reason: 'ended' | 'next' | 'previous') => { const choice = Math.random(); setState(current => stepQueue(current, items.length, mode, reason, () => choice)); };
   const select = (index: number) => setState(current => selectQueueItem(current, index, items.length));
-  useQueueHandlers(() => step('previous'), () => step('next'), !!media);
+  const changeMode = (value: PlaybackMode) => { setState(current => changeQueueMode(current, items.length)); onModeChange(value); };
+  useQueueHandlers(() => step('previous'), () => step('next'), !!media, () => changeMode(playbackModes[(playbackModes.findIndex(m => m.value === mode) + 1) % playbackModes.length].value));
   usePlaybackSource(media ? playbackMeta(media) : null, 'queue');
+  usePlaybackMode(playbackModes.find(m => m.value === mode)?.label || '列表播放');
+  const indexReporter = useRef(onIndexChange); indexReporter.current = onIndexChange;
+  useEffect(() => { indexReporter.current?.(state.index); }, [state.index, state.version]);
   return <Modal title={title} subtitle={`${state.finished ? '播放完毕' : '正在播放'} ${state.index + 1} / ${items.length} · ${media.title}`} onClose={onClose} wide>
     <div className={`detail-player ${media.kind === '音乐' ? 'music-embed' : ''}`}>
       <ResourcePlayer key={`${media.id}:${state.version}`} media={media} onEnded={() => step('ended')} onError={() => setError('这个媒体暂时无法播放，可以跳到下一项。')} />
     </div>
     <div className="queue-toolbar">
-      <PlaybackModeSelect label="队列播放规则" value={mode} onChange={value => { setState(current => changeQueueMode(current, items.length)); onModeChange(value); }} />
+      <PlaybackModeSelect label="队列播放规则" value={mode} onChange={changeMode} />
       <div><button className="icon-button bordered" aria-label="上一项" disabled={!canStepQueue(state, items.length, mode, 'previous')} onClick={() => step('previous')}><ChevronLeft size={19} /></button><button className="icon-button bordered" aria-label="下一项" disabled={!canStepQueue(state, items.length, mode, 'next')} onClick={() => step('next')}><ChevronRight size={19} /></button>{onTheater && <button className="button button-outline" aria-label="放大播放" onClick={() => onTheater(state.index)}><Maximize2 size={15} />放大播放</button>}</div>
     </div>
     <div className="queue-extra-actions"><DownloadButton media={media} notify={notify} /><LyricsControl media={media} enabled={lyricsEnabled} onToggle={onToggleLyrics} /></div>

@@ -25,3 +25,8 @@ export function downloadRequest(media: Media): DownloadRequest {
   // Safe for any media: callers filter with canDownloadMedia before sending a request.
   return { key: downloadKey(media), bvid: media.download?.bvid || '', page: downloadPage(media) };
 }
+export interface LocalCopyRecord { key: string; complete: boolean }
+/** A completed local copy keyed exactly like the download request must never be re-downloaded. */
+export function hasLocalCopy(items: LocalCopyRecord[], media: Media): boolean {
+  return canDownloadMedia(media) && items.some(item => item.key === downloadKey(media) && item.complete);
+}

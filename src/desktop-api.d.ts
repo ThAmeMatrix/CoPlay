@@ -9,6 +9,7 @@ export interface DesktopSettings {
   showBubble: boolean;
   globalShortcuts: boolean;
   showLyrics: boolean;
+  downloadDir: string;
 }
 export interface DownloadState {
   id: string; filename: string; received: number; total: number;
@@ -47,7 +48,6 @@ declare global {
       lyricsClose?: () => void;
       onLyricsDismissed?: (listener: () => void) => () => void;
       chooseDownloadFolder?: () => Promise<string | null>;
-      clearDownloadFolder?: () => void;
     };
   }
 }

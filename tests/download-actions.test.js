@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_BATCH, canDownloadMedia, downloadKey, downloadPage, downloadRequest } from '../src/download-rules.ts';
+import { MAX_BATCH, canDownloadMedia, downloadKey, downloadPage, downloadRequest, hasLocalCopy } from '../src/download-rules.ts';
 
 const bvid = 'BV1B7411m7LV';
 const media = (patch = {}) => ({
@@ -25,4 +25,13 @@ test('download page follows the selected episode and keys match the downloaded l
   assert.deepEqual(downloadRequest(media({ download: undefined })), { key: `bili:undefined:p1`, bvid: '', page: 1 },
     'media without download metadata must not throw');
   assert.equal(MAX_BATCH, 20);
+});
+
+test('completed local copies are never offered for re-download', () => {
+  const key = downloadKey(media());
+  assert.equal(hasLocalCopy([], media()), false);
+  assert.equal(hasLocalCopy([{ key, complete: false }], media()), false, 'incomplete copy still needs the download');
+  assert.equal(hasLocalCopy([{ key: `bili:${bvid}:p9`, complete: true }], media()), false, 'a different episode is not a copy');
+  assert.equal(hasLocalCopy([{ key, complete: true }], media()), true);
+  assert.equal(hasLocalCopy([{ key, complete: true }], media({ download: undefined })), false);
 });

@@ -16,14 +16,16 @@ export interface PlaybackSnapshot {
   controllable: boolean;
   /** The active player is a cross-origin iframe owned by the source platform. */
   embedded: boolean;
+  /** Human-readable queue rule, mirrored into the tray bubble. */
+  mode: string;
 }
 export type CommandAction =
   | 'playPause' | 'seekBack' | 'seekForward' | 'previous' | 'next'
-  | 'mute' | 'volumeUp' | 'volumeDown' | 'seekTo' | 'setVolume' | 'toggleFullscreen';
+  | 'mute' | 'volumeUp' | 'volumeDown' | 'seekTo' | 'setVolume' | 'toggleFullscreen' | 'cycleMode';
 
 const EMPTY: PlaybackSnapshot = {
   active: false, meta: null, playing: false, currentTime: 0, duration: 0,
-  volume: 1, muted: false, controllable: false, embedded: false,
+  volume: 1, muted: false, controllable: false, embedded: false, mode: '列表播放',
 };
 const MEDIA_EVENTS = ['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'volumechange', 'ended', 'seeked'];
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -41,9 +43,12 @@ class PlaybackBus {
   private snapshot: PlaybackSnapshot = EMPTY;
   private element: HTMLMediaElement | null = null;
   private metaOwner: string | null = null;
-  private queue: { previous: () => void; next: () => void } | null = null;
+  private queue: { previous: () => void; next: () => void; cycleMode?: () => void } | null = null;
   private shortcuts: ShortcutMap = normalizeShortcuts(null);
   private resumeAt = 0;
+  private resumeMetaId = '';
+  private announcedMetaId = '';
+  private resumeTimer: ReturnType<typeof setTimeout> | undefined;
   private lastCommand: { action: string; at: number } | null = null;
   private publishTimer: ReturnType<typeof setTimeout> | undefined;
   private started = false;
@@ -75,34 +80,55 @@ class PlaybackBus {
   setSource(meta: PlaybackMeta | null, owner: string, active = true) {
     if (!active) { this.clearSource(owner); return; }
     this.metaOwner = owner;
-    if (meta) this.set({ active: true, meta });
+    if (meta) { this.announcedMetaId = meta.id; this.set({ active: true, meta }); }
     else this.set({ active: true });
     this.syncDom();
+    this.tryResume();
   }
   clearSource(owner: string) {
     if (this.metaOwner !== owner) return;
     this.metaOwner = null;
     this.set({ active: false, meta: null, playing: false, currentTime: 0, duration: 0, controllable: false, embedded: false });
   }
-  setQueueHandlers(handlers: { previous: () => void; next: () => void } | null) { this.queue = handlers; }
+  setQueueHandlers(handlers: { previous: () => void; next: () => void; cycleMode?: () => void } | null) { this.queue = handlers; }
   setShortcuts(map: ShortcutMap) { this.shortcuts = normalizeShortcuts(map); }
+  /** The active owner reports its rule so remote surfaces can show / change it. */
+  setMode(label: string) { if (label && label !== this.snapshot.mode) this.set({ mode: label.slice(0, 40) }); }
   /** Preserve the playhead when the player is remounted into a different layout. */
-  requestResume(seconds?: number) { this.resumeAt = seconds ?? this.snapshot.currentTime; }
+  requestResume(seconds?: number, mediaId?: string) {
+    this.resumeAt = Math.max(0, seconds ?? this.snapshot.currentTime);
+    this.resumeMetaId = mediaId ?? this.snapshot.meta?.id ?? '';
+    if (this.resumeTimer) clearTimeout(this.resumeTimer);
+    // A stale playhead must never be applied to a later session.
+    this.resumeTimer = setTimeout(() => { this.resumeAt = 0; this.resumeMetaId = ''; }, 12000);
+  }
+  /**
+   * Only resume for the SAME item. Seeking a different item to the old
+   * playhead can land past its end and leave a black frame. Called both when a
+   * media element appears and when the new owner announces its metadata,
+   * because those can arrive in either order.
+   */
+  private tryResume() {
+    const id = this.snapshot.meta?.id || this.announcedMetaId;
+    if (!this.element || this.resumeAt <= 0.25 || !this.resumeMetaId || this.resumeMetaId !== id) return;
+    const element = this.element;
+    const target = this.resumeAt;
+    this.resumeAt = 0; this.resumeMetaId = '';
+    if (this.resumeTimer) clearTimeout(this.resumeTimer);
+    const seek = () => {
+      if (Number.isFinite(element.duration) && element.duration > 0 && target < element.duration - 0.5)
+        element.currentTime = clamp(target, 0, element.duration - 0.5);
+      element.removeEventListener('loadedmetadata', seek);
+    };
+    element.addEventListener('loadedmetadata', seek);
+    if (element.readyState >= 1) seek();
+  }
 
   private attach(element: HTMLMediaElement) {
     this.element = element;
     for (const event of MEDIA_EVENTS) element.addEventListener(event, this.readElement);
-    if (this.resumeAt > 0) {
-      const target = this.resumeAt;
-      this.resumeAt = 0;
-      const seek = () => {
-        if (Number.isFinite(element.duration)) element.currentTime = clamp(target, 0, Math.max(0, element.duration - 0.25));
-        element.removeEventListener('loadedmetadata', seek);
-      };
-      element.addEventListener('loadedmetadata', seek);
-      if (element.readyState >= 1) seek();
-    }
     this.readElement();
+    this.tryResume();
   }
   private detach() {
     if (!this.element) return;
@@ -143,6 +169,7 @@ class PlaybackBus {
     if (this.lastCommand && this.lastCommand.action === action && now - this.lastCommand.at < 140) return;
     this.lastCommand = { action, at: now };
     if (action === 'previous' || action === 'next') { this.queue?.[action](); return; }
+    if (action === 'cycleMode') { this.queue?.cycleMode?.(); return; }
     const element = this.element;
     if (!element) {
       // Cross-origin embeds cannot be driven from this document. Keep the visual
@@ -208,6 +235,10 @@ export function usePlayback(): PlaybackSnapshot { return useSyncExternalStore(pl
 export function playbackMeta(media: { id: string; title: string; subtitle: string; cover: string; platform: string; kind: string }): PlaybackMeta {
   return { id: media.id, title: media.title, subtitle: media.subtitle, cover: media.cover, platform: media.platform, kind: media.kind };
 }
+/** The active queue owner publishes its rule for the tray bubble and remote commands. */
+export function usePlaybackMode(label: string, active = true) {
+  useEffect(() => { if (active) playback.setMode(label); }, [label, active]);
+}
 /** Mount inside a player view so the tray/bubble knows what is playing. */
 export function usePlaybackSource(meta: PlaybackMeta | null, owner: string, active = true) {
   useEffect(() => {
@@ -215,13 +246,17 @@ export function usePlaybackSource(meta: PlaybackMeta | null, owner: string, acti
     return () => playback.clearSource(owner);
   }, [meta?.id, meta?.title, meta?.cover, owner, active]);
 }
-/** Register the queue's previous/next actions for shortcuts, tray and bubble. */
-export function useQueueHandlers(previous: () => void, next: () => void, active = true) {
+/** Register the queue's previous/next/mode actions for shortcuts, tray and bubble. */
+export function useQueueHandlers(previous: () => void, next: () => void, active = true, cycleMode?: () => void) {
   const previousRef = useRef(previous); previousRef.current = previous;
   const nextRef = useRef(next); nextRef.current = next;
+  const cycleRef = useRef(cycleMode); cycleRef.current = cycleMode;
   useEffect(() => {
     if (!active) return;
-    playback.setQueueHandlers({ previous: () => previousRef.current(), next: () => nextRef.current() });
+    playback.setQueueHandlers({
+      previous: () => previousRef.current(), next: () => nextRef.current(),
+      cycleMode: () => cycleRef.current?.(),
+    });
     return () => playback.setQueueHandlers(null);
   }, [active]);
 }

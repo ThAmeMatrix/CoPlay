@@ -6,17 +6,17 @@ import PlaybackControls from './PlaybackControls';
 import PlaybackModeSelect from './PlaybackModeSelect';
 import LyricsControl from './LyricsView';
 import { DownloadButton } from './DownloadActions';
-import { playbackMeta, usePlaybackSource, useQueueHandlers } from './playback';
-import { canStepQueue, changeQueueMode, createQueue, selectQueueItem, stepQueue, type PlaybackMode } from './playback-queue';
+import { playbackMeta, usePlaybackSource, usePlaybackMode, useQueueHandlers } from './playback';
+import { canStepQueue, changeQueueMode, createQueue, playbackModes, selectQueueItem, stepQueue, type PlaybackMode } from './playback-queue';
 import { mediaMatchesSearch } from './playlist-search';
 import type { Media } from './types';
 
 export interface TheaterSession { title: string; items: Media[]; index: number; mode: PlaybackMode }
 
 /** Dedicated playback screen: player left, directory right, page/direct fullscreen. */
-export default function TheaterView({ session, onClose, onPlayed, onModeChange, onDetach, lyricsEnabled = false, onToggleLyrics = () => {}, notify }: {
+export default function TheaterView({ session, onClose, onPlayed, onModeChange, onIndexChange, onDetach, lyricsEnabled = false, onToggleLyrics = () => {}, notify }: {
   session: TheaterSession; onClose: () => void; onPlayed: (media: Media) => void;
-  onModeChange: (mode: PlaybackMode) => void; onDetach?: () => void;
+  onModeChange: (mode: PlaybackMode) => void; onIndexChange?: (index: number) => void; onDetach?: () => void;
   lyricsEnabled?: boolean; onToggleLyrics?: () => void; notify?: (text: string) => void;
 }) {
   const { items, title } = session;
@@ -32,9 +32,23 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
   const played = useRef(onPlayed); played.current = onPlayed;
   const step = (reason: 'ended' | 'next' | 'previous') => { const choice = Math.random(); setState(current => stepQueue(current, items.length, mode, reason, () => choice)); };
   const select = (index: number) => setState(current => selectQueueItem(current, index, items.length));
-  useQueueHandlers(() => step('previous'), () => step('next'), !!media);
+  const changeMode = (value: PlaybackMode) => { setState(current => changeQueueMode(current, items.length)); setMode(value); onModeChange(value); };
+  useQueueHandlers(() => step('previous'), () => step('next'), !!media, () => changeMode(playbackModes[(playbackModes.findIndex(m => m.value === mode) + 1) % playbackModes.length].value));
   usePlaybackSource(media ? playbackMeta(media) : null, 'theater');
+  usePlaybackMode(playbackModes.find(m => m.value === mode)?.label || '列表播放');
+  const indexReporter = useRef(onIndexChange); indexReporter.current = onIndexChange;
+  useEffect(() => { indexReporter.current?.(state.index); }, [state.index, state.version]);
   useEffect(() => { if (media) { setError(''); played.current(media); } }, [media, state.version]);
+  // Some browsers block autoplay on a freshly created element. The click that
+  // opened this view is a user gesture, so a second play() call succeeds.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const element = document.querySelector<HTMLMediaElement>('.theater-stage video, .theater-stage audio');
+      // An autoplay-blocked element is still at 0; a user-paused one is not.
+      if (element?.paused && element.currentTime === 0) void element.play().catch(() => {});
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [media?.id, state.version]);
   const desktop = !!window.coplayDesktop?.setFullscreen;
   useEffect(() => {
     const onChange = () => setDirectFull(!!document.fullscreenElement);
@@ -68,7 +82,7 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
       <div className="theater-actions">
         <button className={pageFull ? 'active' : ''} aria-pressed={pageFull} onClick={togglePage} title="页面全屏：播放器铺满整个窗口，隐藏列表与工具栏">{pageFull ? <Minimize2 size={15} /> : <Maximize2 size={15} />}<span>页面全屏</span></button>
         <button className={directFull ? 'active' : ''} aria-pressed={directFull} onClick={() => void toggleDirect()} title="直接全屏：进入系统级全屏，隐藏窗口边框"><MonitorPlay size={15} /><span>直接全屏</span></button>
-        {onDetach && <button onClick={onDetach} title="在独立窗口中播放"><ExternalLink size={15} /><span>独立窗口</span></button>}
+        {onDetach && <button onClick={onDetach} title="窗口全屏：让播放界面占满整个屏幕；播放仍由主窗口控制"><ExternalLink size={15} /><span>窗口全屏</span></button>}
       </div>
     </header>
     <div className="theater-body">
@@ -79,7 +93,7 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
         {!pageFull && <>
           <PlaybackControls onFullscreen={() => void toggleDirect()} fullscreen={directFull} embeddedHint />
           <div className="queue-toolbar theater-toolbar">
-            <PlaybackModeSelect label="队列播放规则" value={mode} onChange={value => { setState(current => changeQueueMode(current, items.length)); setMode(value); onModeChange(value); }} />
+            <PlaybackModeSelect label="队列播放规则" value={mode} onChange={changeMode} />
             <div><button className="icon-button bordered" aria-label="上一项" disabled={!canStepQueue(state, items.length, mode, 'previous')} onClick={() => step('previous')}><ChevronLeft size={17} /></button><button className="icon-button bordered" aria-label="下一项" disabled={!canStepQueue(state, items.length, mode, 'next')} onClick={() => step('next')}><ChevronRight size={17} /></button></div>
           </div>
           {media && <div className="theater-extra-actions"><DownloadButton media={media} notify={notify} /><LyricsControl media={media} enabled={lyricsEnabled} onToggle={onToggleLyrics} /></div>}

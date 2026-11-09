@@ -6,7 +6,7 @@ import {
 } from './download-rules';
 
 export type { DownloadFile, DownloadPlan, DownloadRequest, PreparedDownload } from './download-rules';
-export { MAX_BATCH, canDownloadMedia, downloadKey, downloadPage, downloadRequest } from './download-rules';
+export { MAX_BATCH, canDownloadMedia, downloadKey, downloadPage, downloadRequest, hasLocalCopy } from './download-rules';
 
 /** A single interactive download uses the original endpoint with its own quota. */
 export async function prepareSingle(item: DownloadRequest, signal?: AbortSignal): Promise<PreparedDownload> {
