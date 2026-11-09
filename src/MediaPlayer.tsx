@@ -91,11 +91,26 @@ function AudioPlayer({ media, src, autoPlay, onEnded, onError }: { media: Media;
 }
 
 type PlaybackPlan = { url: string; quality: string; expiresAt: number; duration: number; page: number };
+/**
+ * Reuse a freshly prepared playable URL when the player is remounted into a
+ * different view (queue -> enlarged -> dock). Re-fetching on every switch used
+ * to show a black stage with a spinner while the second B 站 request ran.
+ */
+const planCache = new Map<string, PlaybackPlan>();
+function cachedPlan(bvid: string, page: number) {
+  const key = `${bvid}:${page}`;
+  const plan = planCache.get(key);
+  if (!plan) return null;
+  if (!Number.isFinite(plan.expiresAt) || Date.now() >= plan.expiresAt - 30_000) { planCache.delete(key); return null; }
+  return plan;
+}
 function BilibiliPlayer({ media, target, autoPlay, onEnded }: { media: Media; target: NonNullable<ReturnType<typeof bilibiliPlaybackTarget>>; autoPlay: boolean; onEnded?: () => void }) {
+  const cacheKey = `${target.bvid}:${target.page}`;
+  const initial = target.bvid ? cachedPlan(target.bvid, target.page) : null;
   const [mode, setMode] = useState<'direct' | 'official'>('direct');
   const [attempt, setAttempt] = useState(0);
-  const [plan, setPlan] = useState<PlaybackPlan | null>(null);
-  const [busy, setBusy] = useState(!!target.bvid);
+  const [plan, setPlan] = useState<PlaybackPlan | null>(initial);
+  const [busy, setBusy] = useState(!!target.bvid && !initial);
   const [waiting, setWaiting] = useState(false);
   const [slow, setSlow] = useState(false);
   const [error, setError] = useState(target.bvid ? '' : '番剧需通过 B 站确认播放权限，可选择官方播放器或在 B 站打开。');
@@ -103,12 +118,15 @@ function BilibiliPlayer({ media, target, autoPlay, onEnded }: { media: Media; ta
   const resumeTime = useRef(0);
   useEffect(() => {
     if (mode !== 'direct' || !target.bvid) return;
+    const ready = cachedPlan(target.bvid, target.page);
+    if (ready) { setPlan(ready); setBusy(false); setError(''); setWaiting(false); return; }
     const abort = new AbortController();
     setBusy(true); setPlan(null); setError(''); setWaiting(false);
     void api<PlaybackPlan>('/api/playback/bilibili', { method: 'POST', signal: abort.signal, body: JSON.stringify({ bvid: target.bvid, page: target.page }) })
       .then(result => {
         if (abort.signal.aborted) return;
         if (!/^\/api\/playback\/[a-f0-9]{48}\/video$/.test(result?.url || '') || !Number.isFinite(result.duration) || result.duration <= 0) throw new Error('播放服务未返回有效地址，请刷新页面后重试。');
+        planCache.set(cacheKey, result);
         setPlan(result); setWaiting(true);
       })
       .catch(e => { if (!abort.signal.aborted) { setWaiting(false); setError(e.message || '暂时无法准备视频，请重试。'); } })
@@ -123,7 +141,8 @@ function BilibiliPlayer({ media, target, autoPlay, onEnded }: { media: Media; ta
   }, [waiting, busy]);
   const retry = () => {
     if (video.current) resumeTime.current = video.current.currentTime || 0;
-    setError(''); setMode('direct'); setAttempt(n => n + 1);
+    planCache.delete(cacheKey);
+    setPlan(null); setError(''); setMode('direct'); setAttempt(n => n + 1);
   };
   const official = () => { if (video.current) resumeTime.current = video.current.currentTime || 0; setError(''); setBusy(false); setWaiting(false); setMode('official'); };
   return <div className="bili-player">

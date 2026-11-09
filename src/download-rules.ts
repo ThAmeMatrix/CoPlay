@@ -7,7 +7,21 @@ export interface DownloadPlan { downloads: DownloadFile[]; expiresAt: number; qu
 export interface DownloadRequest { key: string; bvid: string; page: number }
 export interface PreparedDownload { key: string; ok: boolean; plan?: DownloadPlan; error?: string }
 
-export const MAX_BATCH = 20;
+/**
+ * Items per `/api/downloads/prepare-batch` request. There is deliberately NO
+ * cap on how many items the user may select: the panel walks the whole
+ * selection in chunks so a large playlist downloads in one action.
+ */
+export const BATCH_CHUNK_SIZE = 10;
+/** Hard server-side ceiling for a single chunk request. */
+export const MAX_BATCH_REQUEST = 25;
+/** Split an arbitrarily large selection into per-request chunks, losing nothing. */
+export function chunkItems<T>(items: T[], size = BATCH_CHUNK_SIZE): T[][] {
+  const step = Math.max(1, Math.min(size, MAX_BATCH_REQUEST));
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += step) out.push(items.slice(i, i + step));
+  return out;
+}
 const BVID = /^BV[a-zA-Z0-9]{10}$/;
 
 /** B 站公开 MP4 is the only source that offers a downloadable file today. */

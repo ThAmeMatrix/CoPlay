@@ -43,7 +43,7 @@ function downloadFolder() {
 }
 
 function emptyPlayback() {
-  return { active: false, meta: null, playing: false, currentTime: 0, duration: 0, volume: 1, muted: false, controllable: false, embedded: false, mode: '列表播放' };
+  return { active: false, meta: null, playing: false, currentTime: 0, duration: 0, volume: 1, muted: false, controllable: false, embedded: false, mode: '列表播放', fullscreen: false };
 }
 function emptyLyrics() {
   return { enabled: false, mediaId: '', title: '', subtitle: '', source: '', lines: [] };
@@ -67,6 +67,7 @@ function sanitizePlayback(value) {
     volume: boundedNumber(value.volume, 1), muted: value.muted === true,
     controllable: value.controllable === true, embedded: value.embedded === true,
     mode: boundedString(value.mode, 40) || '列表播放',
+    fullscreen: value.fullscreen === true,
   };
 }
 function sanitizeSettings(value) {
@@ -370,7 +371,12 @@ else {
     ipcMain.on('coplay:fullscreen', (event, value) => {
       if (!validSender(event, window) && !validSender(event, theater)) return;
       const target = validSender(event, theater) ? theater : window;
-      target.setFullScreen(value === true);
+      const on = value === true;
+      // Windows fullscreen transitions are expensive; ignore redundant toggles
+      // so double clicks / repeated shortcut presses cannot make the UI stutter.
+      if (target.isFullScreen() === on) return;
+      // enter-full-screen / leave-full-screen report the authoritative state.
+      target.setFullScreen(on);
     });
     ipcMain.on('coplay:open-theater', event => { if (validSender(event, window)) openTheaterWindow(); });
     ipcMain.on('coplay:close-theater', event => {

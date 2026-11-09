@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Pause, Play, RotateCcw, RotateCw, Volume2, VolumeX } from 'lucide-react';
 import { usePlayback, playback, type PlaybackSnapshot, type CommandAction } from './playback';
 import { displayAccelerator, type ShortcutAction, type ShortcutMap } from './shortcuts';
@@ -19,18 +20,67 @@ export default function PlaybackControls({ state, compact = false, onFullscreen,
   const live = usePlayback();
   const s = state || live;
   const run = (action: CommandAction, value?: number) => onCommand ? onCommand(action, value) : playback.command(action, value);
-  const pct = s.duration > 0 ? Math.min(100, s.currentTime / s.duration * 100) : 0;
+  const runRef = useRef(run); runRef.current = run;
   const disabled = !s.controllable;
+  const max = Math.max(s.duration, 1);
+
+  // Scrubbing keeps its own value while the pointer is down. Without this the
+  // 8 Hz playback snapshot fights the drag and the thumb snaps back.
+  const [scrub, setScrub] = useState<number | null>(null);
+  const scrubbing = useRef(false);
+  const pending = useRef<number | null>(null);
+  const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const flush = () => {
+    if (seekTimer.current) { clearTimeout(seekTimer.current); seekTimer.current = undefined; }
+    if (pending.current !== null) { runRef.current('seekTo', pending.current); pending.current = null; }
+  };
+  const endScrub = () => {
+    if (!scrubbing.current && scrub === null) return;
+    scrubbing.current = false;
+    flush();
+    // Hold the local value briefly until the media's seeked event reaches the
+    // bus, otherwise the thumb flickers back before jumping forward again.
+    clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => setScrub(null), 200);
+  };
+  const endRef = useRef(endScrub); endRef.current = endScrub;
+  useEffect(() => {
+    const up = () => endRef.current();
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+  }, []);
+  useEffect(() => () => { clearTimeout(seekTimer.current); clearTimeout(settleTimer.current); }, []);
+  /** Trailing-edge throttle: at most one real seek per 90 ms, plus a final one on release. */
+  const seek = (value: number) => {
+    clearTimeout(settleTimer.current);
+    setScrub(value);
+    pending.current = value;
+    if (seekTimer.current) return;
+    seekTimer.current = setTimeout(() => {
+      seekTimer.current = undefined;
+      if (pending.current !== null) { runRef.current('seekTo', pending.current); pending.current = null; }
+    }, 90);
+  };
+
+  const shown = scrub ?? Math.min(s.currentTime, max);
+  const pct = s.duration > 0 ? Math.min(100, shown / s.duration * 100) : 0;
   /** Native tooltips reveal the matching global hotkey on hover. */
   const hint = (label: string, action?: ShortcutAction) => {
     const accelerator = action ? shortcuts?.[action] : '';
     return accelerator ? `${label}（${displayAccelerator(accelerator)}）` : label;
   };
-  return <div className={`playback-controls ${compact ? 'compact' : ''}`}>
+  return <div className={`playback-controls ${compact ? 'compact' : ''} ${scrub !== null ? 'scrubbing' : ''}`}>
     <div className="playback-progress">
-      <span>{time(s.currentTime)}</span>
-      <input type="range" min={0} max={Math.max(s.duration, 1)} step={0.1} value={Math.min(s.currentTime, Math.max(s.duration, 1))}
-        aria-label="播放进度" disabled={disabled} onChange={event => run('seekTo', Number(event.target.value))} style={{ '--played': `${pct}%` } as React.CSSProperties} />
+      <span>{time(shown)}</span>
+      <input type="range" min={0} max={max} step={0.01} value={shown}
+        aria-label="播放进度" disabled={disabled}
+        onPointerDown={() => { clearTimeout(settleTimer.current); scrubbing.current = true; }}
+        onKeyDown={() => { clearTimeout(settleTimer.current); scrubbing.current = true; }}
+        onChange={event => seek(Number(event.target.value))}
+        onBlur={endScrub} onKeyUp={endScrub}
+        style={{ '--played': `${pct}%` } as React.CSSProperties} />
       <span>{s.duration ? time(s.duration) : '--:--'}</span>
     </div>
     <div className="playback-buttons">
@@ -41,7 +91,7 @@ export default function PlaybackControls({ state, compact = false, onFullscreen,
       <button className="icon-button" aria-label="下一项" title={hint('下一项', 'next')} onClick={() => run('next')}><ChevronRight size={19} /></button>
       <span className="playback-volume">
         <button className="icon-button" aria-label={s.muted ? '取消静音' : '静音'} title={hint(s.muted ? '取消静音' : '静音', 'mute')} disabled={disabled} onClick={() => run('mute')}>{s.muted || s.volume === 0 ? <VolumeX size={17} /> : <Volume2 size={17} />}</button>
-        <input type="range" min={0} max={1} step={0.05} value={s.muted ? 0 : s.volume} aria-label="音量" disabled={disabled}
+        <input type="range" min={0} max={1} step={0.01} value={s.muted ? 0 : s.volume} aria-label="音量" disabled={disabled}
           title={hint(`音量 ${Math.round((s.muted ? 0 : s.volume) * 100)}%`, 'volumeUp')}
           onChange={event => run('setVolume', Number(event.target.value))} style={{ '--played': `${(s.muted ? 0 : s.volume) * 100}%` } as React.CSSProperties} />
       </span>

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_BATCH, canDownloadMedia, downloadKey, downloadPage, downloadRequest, hasLocalCopy } from '../src/download-rules.ts';
+import { BATCH_CHUNK_SIZE, MAX_BATCH_REQUEST, chunkItems, canDownloadMedia, downloadKey, downloadPage, downloadRequest, hasLocalCopy } from '../src/download-rules.ts';
 
 const bvid = 'BV1B7411m7LV';
 const media = (patch = {}) => ({
@@ -24,7 +24,20 @@ test('download page follows the selected episode and keys match the downloaded l
   assert.deepEqual(downloadRequest(media()), { key: `bili:${bvid}:p3`, bvid, page: 3 });
   assert.deepEqual(downloadRequest(media({ download: undefined })), { key: `bili:undefined:p1`, bvid: '', page: 1 },
     'media without download metadata must not throw');
-  assert.equal(MAX_BATCH, 20);
+  assert.equal(BATCH_CHUNK_SIZE, 10);
+  assert.equal(MAX_BATCH_REQUEST, 25);
+});
+
+test('a whole selection is chunked without any cap or lost items', () => {
+  assert.deepEqual(chunkItems([]), []);
+  for (const total of [1, 3, 10, 11, 20, 37, 250]) {
+    const items = Array.from({ length: total }, (_, i) => i);
+    const chunks = chunkItems(items);
+    assert.deepEqual(chunks.flat(), items, `${total} items must all be downloaded`);
+    assert.ok(chunks.every(chunk => chunk.length > 0 && chunk.length <= MAX_BATCH_REQUEST));
+  }
+  assert.equal(chunkItems(Array.from({ length: 40 }, (_, i) => i)).length, 4);
+  assert.equal(chunkItems([1, 2, 3], 100).length, 1, 'chunk size is capped by the server ceiling');
 });
 
 test('completed local copies are never offered for re-download', () => {

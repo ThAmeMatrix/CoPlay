@@ -108,22 +108,32 @@ export async function createApplication({ dataDir = path.resolve('data'), test =
     try { res.json(await downloads.prepare(req.body || {}, abort.signal)); } catch (e) { if (!res.destroyed) res.status(400).json({ error: e.message }); }
   });
   app.get('/api/downloads/:token/file', (req, res) => downloads.send(req, res));
+  // The renderer walks a whole selection in chunks of 10; this endpoint is the
+  // per-chunk worker. A small pool keeps large selections responsive without
+  // hammering the upstream platform.
+  const MAX_BATCH_REQUEST = 25;
   app.post('/api/downloads/prepare-batch', async (req, res) => {
-    if (!rate(`download-batch:${req.ip}`, 4)) return res.status(429).json({ error: '批量下载准备太频繁，请稍后再试' });
+    if (!rate(`download-batch:${req.ip}`, 60)) return res.status(429).json({ error: '批量下载准备太频繁，请稍后再试' });
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    if (!items.length || items.length > 20) return res.status(400).json({ error: '一次最多准备 20 项内容' });
+    if (!items.length || items.length > MAX_BATCH_REQUEST) return res.status(400).json({ error: `一次最多准备 ${MAX_BATCH_REQUEST} 项内容` });
     const abort = new AbortController(); res.once('close', () => abort.abort());
-    const results = [];
-    for (const item of items) {
-      if (abort.signal.aborted) break;
-      const key = clean(item?.key, 128), bvid = clean(item?.bvid, 24), page = Number(item?.page || 1);
-      if (!/^BV[a-zA-Z0-9]{10}$/.test(bvid)) { results.push({ key, ok: false, error: 'BV 号无效' }); continue; }
-      try {
-        const plan = await downloads.prepare({ bvid, page }, abort.signal, { ttlMs: 60 * 60 * 1000 });
-        results.push({ key, ok: true, plan });
-      } catch (error) { results.push({ key, ok: false, error: clean(error.message, 180) }); }
-    }
-    if (!res.destroyed) res.json({ results });
+    const results = new Array(items.length);
+    let cursor = 0;
+    const worker = async () => {
+      while (!abort.signal.aborted) {
+        const index = cursor++;
+        if (index >= items.length) return;
+        const item = items[index];
+        const key = clean(item?.key, 128), bvid = clean(item?.bvid, 24), page = Number(item?.page || 1);
+        if (!/^BV[a-zA-Z0-9]{10}$/.test(bvid)) { results[index] = { key, ok: false, error: 'BV 号无效' }; continue; }
+        try {
+          const plan = await downloads.prepare({ bvid, page }, abort.signal, { ttlMs: 60 * 60 * 1000 });
+          results[index] = { key, ok: true, plan };
+        } catch (error) { results[index] = { key, ok: false, error: clean(error.message, 180) }; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
+    if (!res.destroyed) res.json({ results: results.filter(Boolean) });
   });
   // GET is a read (playback surfaces must not issue POST requests); POST is kept
   // for callers that already hold an LRC sheet and just want it parsed.

@@ -1,12 +1,12 @@
 import { api } from './hooks';
 import { watchDownload } from './downloaded-media';
 import {
-  MAX_BATCH, downloadRequest,
+  downloadRequest,
   type DownloadPlan, type DownloadRequest, type PreparedDownload,
 } from './download-rules';
 
 export type { DownloadFile, DownloadPlan, DownloadRequest, PreparedDownload } from './download-rules';
-export { MAX_BATCH, canDownloadMedia, downloadKey, downloadPage, downloadRequest, hasLocalCopy } from './download-rules';
+export { BATCH_CHUNK_SIZE, MAX_BATCH_REQUEST, chunkItems, canDownloadMedia, downloadKey, downloadPage, downloadRequest, hasLocalCopy } from './download-rules';
 
 /** A single interactive download uses the original endpoint with its own quota. */
 export async function prepareSingle(item: DownloadRequest, signal?: AbortSignal): Promise<PreparedDownload> {
@@ -20,10 +20,11 @@ export async function prepareSingle(item: DownloadRequest, signal?: AbortSignal)
   }
 }
 
+/** Prepare one chunk. Callers loop over chunks to download the whole selection. */
 export async function prepareDownloads(items: DownloadRequest[], signal?: AbortSignal): Promise<PreparedDownload[]> {
   if (!items.length) return [];
   const data = await api<{ results: PreparedDownload[] }>('/api/downloads/prepare-batch', {
-    method: 'POST', signal, body: JSON.stringify({ items: items.slice(0, MAX_BATCH) }),
+    method: 'POST', signal, body: JSON.stringify({ items }),
   });
   return Array.isArray(data.results) ? data.results : [];
 }

@@ -18,6 +18,8 @@ export interface PlaybackSnapshot {
   embedded: boolean;
   /** Human-readable queue rule, mirrored into the tray bubble. */
   mode: string;
+  /** OS-level fullscreen, reported by the main process / Fullscreen API. */
+  fullscreen: boolean;
 }
 export type CommandAction =
   | 'playPause' | 'seekBack' | 'seekForward' | 'previous' | 'next'
@@ -25,10 +27,13 @@ export type CommandAction =
 
 const EMPTY: PlaybackSnapshot = {
   active: false, meta: null, playing: false, currentTime: 0, duration: 0,
-  volume: 1, muted: false, controllable: false, embedded: false, mode: '列表播放',
+  volume: 1, muted: false, controllable: false, embedded: false, mode: '列表播放', fullscreen: false,
 };
 const MEDIA_EVENTS = ['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'volumechange', 'ended', 'seeked'];
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+// Continuous controls must not be throttled by the discrete-command debounce,
+// otherwise dragging a progress bar feels sticky.
+const CONTINUOUS = new Set<CommandAction>(['seekTo', 'setVolume', 'volumeUp', 'volumeDown']);
 
 function mediaElement(): HTMLMediaElement | null {
   const nodes = Array.from(document.querySelectorAll<HTMLMediaElement>('video, audio'));
@@ -52,7 +57,6 @@ class PlaybackBus {
   private lastCommand: { action: string; at: number } | null = null;
   private publishTimer: ReturnType<typeof setTimeout> | undefined;
   private started = false;
-  private fullscreen = false;
 
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.snapshot;
@@ -157,16 +161,18 @@ class PlaybackBus {
     } else if (this.element) this.readElement();
   };
 
+  /** Single source of truth for OS fullscreen. State comes from real events. */
+  setFullscreen = (enabled: boolean) => {
+    if (window.coplayDesktop?.setFullscreen) window.coplayDesktop.setFullscreen(enabled);
+    else if (enabled && !document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => {});
+    else if (!enabled && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+  };
+  toggleFullscreen = () => this.setFullscreen(!this.snapshot.fullscreen);
+
   command = (action: CommandAction, value?: number) => {
-    if (action === 'toggleFullscreen') {
-      this.fullscreen = !this.fullscreen;
-      if (window.coplayDesktop?.setFullscreen) window.coplayDesktop.setFullscreen(this.fullscreen);
-      else if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-      else void document.documentElement.requestFullscreen?.().catch(() => {});
-      return;
-    }
+    if (action === 'toggleFullscreen') { this.toggleFullscreen(); return; }
     const now = Date.now();
-    if (this.lastCommand && this.lastCommand.action === action && now - this.lastCommand.at < 140) return;
+    if (!CONTINUOUS.has(action) && this.lastCommand && this.lastCommand.action === action && now - this.lastCommand.at < 140) return;
     this.lastCommand = { action, at: now };
     if (action === 'previous' || action === 'next') { this.queue?.[action](); return; }
     if (action === 'cycleMode') { this.queue?.cycleMode?.(); return; }
@@ -204,11 +210,18 @@ class PlaybackBus {
     this.started = true;
     const observer = new MutationObserver(() => this.syncDom());
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'hidden', 'class'] });
-    window.setInterval(() => this.syncDom(), 400);
+    document.addEventListener('fullscreenchange', () => this.set({ fullscreen: !!document.fullscreenElement }));
+    // A ~8 Hz clock keeps the progress bar visually smooth; when the element is
+    // still attached we only read it instead of re-scanning the whole document.
+    window.setInterval(() => {
+      if (this.element?.isConnected) this.readElement();
+      else this.syncDom();
+    }, 120);
     window.addEventListener('keydown', event => {
       if (document.querySelector('[data-capturing-shortcut]')) return;
       const target = event.target as HTMLElement | null;
-      if (target?.isContentEditable || target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (target && typeof target.closest === 'function' &&
+        (target.isContentEditable || target.closest('input, textarea, select, [contenteditable="true"]'))) return;
       for (const [action, accelerator] of Object.entries(this.shortcuts) as [CommandAction, string][]) {
         if (!accelerator || !acceleratorMatches(event, accelerator)) continue;
         event.preventDefault();
@@ -226,12 +239,16 @@ class PlaybackBus {
       const action = command?.action as CommandAction;
       if (typeof action === 'string' && /^[A-Za-z]{2,20}$/.test(action)) this.command(action, command.value);
     });
-    window.coplayDesktop?.onFullscreenState?.(on => { this.fullscreen = on; });
+    window.coplayDesktop?.onFullscreenState?.(on => { this.set({ fullscreen: !!on }); });
   }
 }
 
 export const playback = new PlaybackBus();
 export function usePlayback(): PlaybackSnapshot { return useSyncExternalStore(playback.subscribe, playback.getSnapshot, playback.getSnapshot); }
+/** Only re-render when the boolean flips, not on every progress tick. */
+export function useFullscreen(): boolean {
+  return useSyncExternalStore(playback.subscribe, () => playback.getSnapshot().fullscreen, () => false);
+}
 export function playbackMeta(media: { id: string; title: string; subtitle: string; cover: string; platform: string; kind: string }): PlaybackMeta {
   return { id: media.id, title: media.title, subtitle: media.subtitle, cover: media.cover, platform: media.platform, kind: media.kind };
 }

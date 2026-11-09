@@ -57,6 +57,11 @@
 @media(max-width:620px){.choose-playlist{grid-template-columns:1fr}}
 
 /* Shared transport bar */
+/* Registering the custom property lets the played-fill glide between 8 Hz
+   snapshots instead of jumping; dragging disables the transition for 1:1 feel. */
+@property --played{syntax:'<percentage>';inherits:false;initial-value:0%}
+.playback-controls input[type=range]{transition:--played 110ms linear}
+.playback-controls.scrubbing input[type=range]{transition:none}
 .playback-controls{display:flex;flex-direction:column;gap:10px}
 .playback-progress{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
 .playback-progress>span{min-width:44px;text-align:center}
@@ -119,6 +124,30 @@
 .theater-view.page-full .theater-directory{display:none}
 .theater-view.page-full .theater-main{padding:0}
 .theater-view.page-full .theater-stage{border-radius:0;min-height:0}
+.theater-view.page-full .bili-player-toolbar,.theater-view.page-full .bili-player-notice,.theater-view.page-full .downloaded-player-label{display:none}
+/* Every player variant must actually fill the stage; a default-sized <video>
+   inside a flex wrapper otherwise shows a tiny/blank frame. */
+.theater-stage .bili-player-stage,.theater-stage .downloaded-player-stage{width:100%;height:100%}
+.theater-stage .bili-player-stage video,.theater-stage .bili-player-stage iframe,
+.theater-stage .downloaded-player-stage video,.theater-stage .platform-music-player iframe{width:100%;height:100%;min-height:0;object-fit:contain}
+.theater-stage video::-webkit-media-controls{display:none !important}
+.theater-stage .local-copy-status{min-height:120px}
+/* Page-fullscreen overlay: always reachable, so it can never look like a dead screen. */
+.theater-page-controls{position:absolute;left:0;right:0;bottom:0;z-index:12;display:flex;align-items:center;gap:18px;padding:12px 22px 16px;background:linear-gradient(0deg,#0b1014f2,#0b1014b8 70%,transparent);color:#eef2f4}
+.theater-page-title{min-width:0;width:180px;flex-shrink:0}
+.theater-page-title strong{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.theater-page-title span{display:block;font-size:11px;color:#96a6ae;margin-top:3px}
+.theater-page-controls>.playback-controls{flex:1;min-width:0;color:#cbd5d9}
+.theater-page-controls .icon-button{color:#cbd5d9}
+.theater-page-controls .icon-button:hover{background:#ffffff18;color:#fff}
+.theater-page-actions{display:flex;gap:8px;flex-shrink:0}
+.theater-page-actions .button{background:#ffffff14;border-color:#ffffff30;color:#eef2f4;font-size:12px;white-space:nowrap}
+.theater-page-actions .button:hover{background:#ffffff24;color:#fff}
+@media(max-width:760px){
+  .theater-page-controls{flex-wrap:wrap;gap:8px;padding:10px 12px}
+  .theater-page-title{width:100%}
+  .theater-page-controls>.playback-controls{flex-basis:100%}
+}
 @media(max-width:760px){
   .theater-body{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 210px}
   .theater-directory{border-left:0;border-top:1px solid #ffffff18}
@@ -201,6 +230,13 @@
 .batch-check input{accent-color:var(--accent);width:14px;height:14px;margin:0}
 .batch-check:has(input:disabled){opacity:.62;cursor:not-allowed}
 @media(max-width:550px){.batch-check span{display:none}.batch-check{padding:7px}}
+
+/* Download progress is transient; keep it clear of the bottom player dock. */
+.app-shell.dock-visible .desktop-downloads{bottom:104px}
+@media(max-width:760px){.app-shell.dock-visible .desktop-downloads{bottom:128px}}
+.desktop-downloads-clear{position:absolute;top:7px;right:7px;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;color:var(--text-muted)}
+.desktop-downloads-clear:hover{background:var(--surface-2);color:var(--accent)}
+.desktop-downloads{transition:opacity .2s ease}
 
 /* Preferences: one-time download destination, no per-download dialog. */
 .download-dir-row{display:flex;align-items:center;flex-wrap:wrap;gap:9px}

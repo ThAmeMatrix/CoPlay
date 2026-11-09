@@ -92,7 +92,10 @@ test('batch download preparation validates items and keeps long-lived tickets', 
   const post = body => fetch(base + '/api/downloads/prepare-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async r => ({ status: r.status, data: await r.json() }));
   try {
     assert.equal((await post({ items: [] })).status, 400);
-    assert.equal((await post({ items: Array.from({ length: 21 }, () => ({ bvid: 'BV1B7411m7LV' })) })).status, 400);
+    // The selection itself is unbounded now; only a single request is capped.
+    const tooLarge = await post({ items: Array.from({ length: 26 }, () => ({ bvid: 'BV1B7411m7LV' })) });
+    assert.equal(tooLarge.status, 400);
+    assert.match(tooLarge.data.error, /25/);
     const invalid = await post({ items: [{ key: 'bad', bvid: 'javascript:alert(1)' }, { key: 'good', bvid: 'not-a-bvid' }] });
     assert.equal(invalid.status, 200);
     assert.deepEqual(invalid.data.results.map(r => r.ok), [false, false]);

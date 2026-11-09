@@ -1,6 +1,6 @@
 {
   "name": "coplay",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "共映 · 影视与音乐资源库",
   "author": "CoPlay",
   "main": "desktop/main.cjs",
@@ -18,6 +18,7 @@
     "test:usability": "electron tests/playlist-usability-renderer.cjs",
     "test:downloads": "electron tests/downloads-renderer.cjs",
     "test:dock": "electron tests/player-dock-renderer.cjs",
+    "test:download-all": "electron tests/download-all-renderer.cjs",
     "check": "tsc -b",
     "theme:generate": "node scripts/generate-dark-theme.cjs",
     "desktop:runtime": "node node_modules/electron/install.js",

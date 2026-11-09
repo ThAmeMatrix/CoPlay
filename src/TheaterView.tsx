@@ -1,22 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Maximize2, Minimize2, MonitorPlay, Play, Search, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Maximize2, Minimize2, MonitorPlay, Play, Search, X } from 'lucide-react';
 import { Cover, PlatformIcon } from './components';
 import { ResourcePlayer } from './MediaPlayer';
 import PlaybackControls from './PlaybackControls';
 import PlaybackModeSelect from './PlaybackModeSelect';
 import LyricsControl from './LyricsView';
 import { DownloadButton } from './DownloadActions';
-import { playbackMeta, usePlaybackSource, usePlaybackMode, useQueueHandlers } from './playback';
+import { playback, playbackMeta, useFullscreen, usePlaybackSource, usePlaybackMode, useQueueHandlers } from './playback';
 import { canStepQueue, changeQueueMode, createQueue, playbackModes, selectQueueItem, stepQueue, type PlaybackMode } from './playback-queue';
 import { mediaMatchesSearch } from './playlist-search';
 import type { Media } from './types';
 
 export interface TheaterSession { title: string; items: Media[]; index: number; mode: PlaybackMode }
 
-/** Dedicated playback screen: player left, directory right, page/direct fullscreen. */
-export default function TheaterView({ session, onClose, onPlayed, onModeChange, onIndexChange, onDetach, lyricsEnabled = false, onToggleLyrics = () => {}, notify }: {
+/** Dedicated playback screen: player left, directory right, CSS and OS fullscreen. */
+export default function TheaterView({ session, onClose, onPlayed, onModeChange, onIndexChange, lyricsEnabled = false, onToggleLyrics = () => {}, notify }: {
   session: TheaterSession; onClose: () => void; onPlayed: (media: Media) => void;
-  onModeChange: (mode: PlaybackMode) => void; onIndexChange?: (index: number) => void; onDetach?: () => void;
+  onModeChange: (mode: PlaybackMode) => void; onIndexChange?: (index: number) => void;
   lyricsEnabled?: boolean; onToggleLyrics?: () => void; notify?: (text: string) => void;
 }) {
   const { items, title } = session;
@@ -24,10 +24,12 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
   const [mode, setMode] = useState<PlaybackMode>(session.mode);
   const [query, setQuery] = useState('');
   const [pageFull, setPageFull] = useState(false);
-  const [directFull, setDirectFull] = useState(false);
   const [error, setError] = useState('');
   const root = useRef<HTMLDivElement>(null);
   const media = items[state.index];
+  // OS fullscreen is owned by the playback bus, which listens to real
+  // fullscreenchange / IPC events. No optimistic local copy that can desync.
+  const fullscreen = useFullscreen();
   const visible = useMemo(() => items.map((item, index) => ({ item, index })).filter(({ item }) => mediaMatchesSearch(item, query)), [items, query]);
   const played = useRef(onPlayed); played.current = onPlayed;
   const step = (reason: 'ended' | 'next' | 'previous') => { const choice = Math.random(); setState(current => stepQueue(current, items.length, mode, reason, () => choice)); };
@@ -44,54 +46,51 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const element = document.querySelector<HTMLMediaElement>('.theater-stage video, .theater-stage audio');
-      // An autoplay-blocked element is still at 0; a user-paused one is not.
       if (element?.paused && element.currentTime === 0) void element.play().catch(() => {});
-    }, 700);
+    }, 500);
     return () => window.clearTimeout(timer);
-  }, [media?.id, state.version]);
-  const desktop = !!window.coplayDesktop?.setFullscreen;
-  useEffect(() => {
-    const onChange = () => setDirectFull(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', onChange);
-    const offDesktop = window.coplayDesktop?.onFullscreenState?.(on => setDirectFull(on));
-    return () => { document.removeEventListener('fullscreenchange', onChange); offDesktop?.(); };
-  }, []);
+  }, [media?.id]);
+  // One keydown listener for the lifetime of the view.
+  const closeRef = useRef(onClose); closeRef.current = onClose;
+  const pageFullRef = useRef(pageFull); pageFullRef.current = pageFull;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !document.fullscreenElement && !directFull) onClose();
-      if (event.key === 'F11') { event.preventDefault(); void toggleDirect(); }
+      if (event.key === 'Escape') {
+        if (pageFullRef.current) setPageFull(false);
+        else if (playback.getSnapshot().fullscreen) playback.setFullscreen(false);
+        else closeRef.current();
+        return;
+      }
+      if (event.key === 'F11') { event.preventDefault(); playback.toggleFullscreen(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
-  const toggleDirect = async () => {
-    if (desktop) { window.coplayDesktop?.setFullscreen?.(!directFull); setDirectFull(!directFull); return; }
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await (root.current || document.documentElement).requestFullscreen();
-    } catch { setDirectFull(!!document.fullscreenElement); }
-  };
+  }, []);
+  // Leaving the view must never leave the OS window stuck in fullscreen.
+  useEffect(() => () => { if (playback.getSnapshot().fullscreen) playback.setFullscreen(false); }, []);
+
+  const toggleDirect = () => playback.toggleFullscreen();
   /** Page fullscreen is CSS-only: it fills the app window without OS fullscreen. */
   const togglePage = () => setPageFull(value => !value);
-  useEffect(() => () => { if (desktop) window.coplayDesktop?.setFullscreen?.(false); }, [desktop]);
+  const transport = <PlaybackControls onFullscreen={toggleDirect} fullscreen={fullscreen} embeddedHint />;
 
   return <div ref={root} className={`theater-view ${pageFull ? 'page-full' : ''}`} role="region" aria-label="播放界面">
     <header className="theater-head">
       <button className="theater-back" onClick={onClose}><ArrowLeft size={17} />返回</button>
       <div className="theater-titles"><strong>{media?.title || title}</strong><span>{title} · {state.index + 1} / {items.length} · {media?.subtitle || media?.platform}</span></div>
       <div className="theater-actions">
-        <button className={pageFull ? 'active' : ''} aria-pressed={pageFull} onClick={togglePage} title="页面全屏：播放器铺满整个窗口，隐藏列表与工具栏">{pageFull ? <Minimize2 size={15} /> : <Maximize2 size={15} />}<span>页面全屏</span></button>
-        <button className={directFull ? 'active' : ''} aria-pressed={directFull} onClick={() => void toggleDirect()} title="直接全屏：进入系统级全屏，隐藏窗口边框"><MonitorPlay size={15} /><span>直接全屏</span></button>
-        {onDetach && <button onClick={onDetach} title="窗口全屏：让播放界面占满整个屏幕；播放仍由主窗口控制"><ExternalLink size={15} /><span>窗口全屏</span></button>}
+        <button className={pageFull ? 'active' : ''} aria-pressed={pageFull} onClick={togglePage} title="页面全屏：播放器铺满整个窗口，隐藏列表与工具栏（Esc 退出）">{pageFull ? <Minimize2 size={15} /> : <Maximize2 size={15} />}<span>页面全屏</span></button>
+        <button className={fullscreen ? 'active' : ''} aria-pressed={fullscreen} onClick={toggleDirect} title="直接全屏：进入系统级全屏，隐藏窗口边框（Esc 退出）"><MonitorPlay size={15} /><span>{fullscreen ? '退出全屏' : '直接全屏'}</span></button>
       </div>
     </header>
     <div className="theater-body">
       <div className="theater-main">
-        <div className="theater-stage" key={`${media?.id}:${state.version}`}>
+        {/* Stable key: mode changes and replays must not remount (and rebuffer) the video. */}
+        <div className="theater-stage" key={media?.id}>
           {media ? <ResourcePlayer media={media} onEnded={() => step('ended')} onError={() => setError('这个媒体暂时无法播放，可以跳到下一项。')} /> : <p className="theater-empty">列表里暂时没有可播放的内容。</p>}
         </div>
         {!pageFull && <>
-          <PlaybackControls onFullscreen={() => void toggleDirect()} fullscreen={directFull} embeddedHint />
+          {transport}
           <div className="queue-toolbar theater-toolbar">
             <PlaybackModeSelect label="队列播放规则" value={mode} onChange={changeMode} />
             <div><button className="icon-button bordered" aria-label="上一项" disabled={!canStepQueue(state, items.length, mode, 'previous')} onClick={() => step('previous')}><ChevronLeft size={17} /></button><button className="icon-button bordered" aria-label="下一项" disabled={!canStepQueue(state, items.length, mode, 'next')} onClick={() => step('next')}><ChevronRight size={17} /></button></div>
@@ -112,5 +111,15 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
         </button>)}{!visible.length && <p className="theater-empty">没有匹配的内容，换个关键词试试。</p>}</div>
       </aside>
     </div>
+    {/* Page-fullscreen keeps an always-reachable overlay so the user can exit
+        and control playback; otherwise the view looks like a dead black screen. */}
+    {pageFull && <div className="theater-page-controls">
+      <div className="theater-page-title"><strong>{media?.title || title}</strong><span>{state.index + 1} / {items.length}</span></div>
+      {transport}
+      <div className="theater-page-actions">
+        <button className="button button-outline" onClick={toggleDirect} title="系统级全屏">{fullscreen ? <Minimize2 size={15} /> : <MonitorPlay size={15} />}{fullscreen ? '退出全屏' : '直接全屏'}</button>
+        <button className="button button-outline" onClick={togglePage}><Minimize2 size={15} />退出页面全屏</button>
+      </div>
+    </div>}
   </div>;
 }

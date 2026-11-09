@@ -94,6 +94,54 @@ app.whenReady().then(async () => {
     const v=document.querySelector('.theater-stage video'),box=v.getBoundingClientRect();
     check(box.width>400&&box.height>200,'theater video is not visible');`);
   await shot('player-theater-1.7.0.png');
+
+  // Only two unambiguous fullscreen controls, both actually wired up.
+  await run(`check(document.querySelectorAll('.theater-actions>button').length===2,'redundant fullscreen buttons');
+    check([...document.querySelectorAll('.theater-actions>button')].some(b=>b.textContent.includes('页面全屏')),'page fullscreen missing');
+    check([...document.querySelectorAll('.theater-actions>button')].some(b=>b.textContent.includes('直接全屏')),'direct fullscreen missing');`);
+  results.push({ name: 'the enlarged view exposes exactly two fullscreen controls', ok: true });
+
+  // Page fullscreen must keep a reachable transport + exit overlay.
+  await run(`[...document.querySelectorAll('.theater-actions>button')].find(b=>b.textContent.includes('页面全屏')).click();await tick();
+    await waitFor(()=>document.querySelector('.theater-view.page-full'),'page fullscreen');
+    check(!!document.querySelector('.theater-page-controls .playback-controls'),'page fullscreen lost the transport');
+    check([...document.querySelectorAll('.theater-page-actions button')].some(b=>b.textContent.includes('退出页面全屏')),'page fullscreen has no exit');
+    const v=document.querySelector('.theater-stage video');
+    check(v&&v.clientWidth>600&&v.clientHeight>300&&!v.paused,'video not visible in page fullscreen');`);
+  await shot('player-page-full-1.7.0.png');
+  await run(`[...document.querySelectorAll('.theater-page-actions button')].find(b=>b.textContent.includes('退出页面全屏')).click();await tick();
+    check(!document.querySelector('.theater-view.page-full'),'page fullscreen exit button did nothing');
+    check(getComputedStyle(document.querySelector('.theater-head')).display!=='none','header did not return');`);
+  results.push({ name: 'page fullscreen keeps controls and is reversible', ok: true });
+
+  // Esc leaves page fullscreen first instead of closing the whole player.
+  await run(`[...document.querySelectorAll('.theater-actions>button')].find(b=>b.textContent.includes('页面全屏')).click();await tick();
+    window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await tick();
+    check(!document.querySelector('.theater-view.page-full'),'Esc did not leave page fullscreen');
+    check(!!document.querySelector('.theater-view'),'Esc closed the player instead of just fullscreen');`);
+  results.push({ name: 'Escape exits page fullscreen without stopping playback', ok: true });
+
+  // Dragging the progress slider must follow the pointer every step (no snap-back).
+  const scrub = await run(`
+    const input=document.querySelector('.theater-main .playback-progress input');
+    const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+    const values=[];
+    input.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));
+    for(const v of [10,12,14,16,18]){
+      setter.call(input,String(v));
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      await new Promise(r=>setTimeout(r,25));
+      values.push(Number(input.value));
+    }
+    window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));
+    await new Promise(r=>setTimeout(r,300));
+    return { values, time: document.querySelector('.theater-stage video').currentTime, playing: !document.querySelector('.theater-stage video').paused };
+  `);
+  assert.deepEqual(scrub.values, [10, 12, 14, 16, 18], 'slider must not snap back while dragging');
+  assert.ok(Math.abs(scrub.time - 18) < 1.5, `seek did not follow the drag (got ${scrub.time})`);
+  assert.equal(scrub.playing, true, 'seeking must not pause playback');
+  results.push({ name: 'progress scrubbing is continuous and seeks to the released position', ok: true });
+
   await run(`await click('返回','.theater-back');
     await waitFor(()=>document.querySelector('video'),'player after back');
     await waitFor(()=>{const v=document.querySelector('video');return !v.paused&&v.currentTime>0.3},'playing after back');`);

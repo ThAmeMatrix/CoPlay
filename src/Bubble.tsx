@@ -6,7 +6,7 @@ import { applyTheme } from './settings';
 import { displayAccelerator, type ShortcutMap } from './shortcuts';
 
 type BubbleState = PlaybackSnapshot & { shortcuts?: ShortcutMap };
-const EMPTY: BubbleState = { active: false, meta: null, playing: false, currentTime: 0, duration: 0, volume: 1, muted: false, controllable: false, embedded: false, mode: '列表播放' };
+const EMPTY: BubbleState = { active: false, meta: null, playing: false, currentTime: 0, duration: 0, volume: 1, muted: false, controllable: false, embedded: false, mode: '列表播放', fullscreen: false };
 
 /** Rendered only inside the independent frameless tray window. */
 export default function Bubble() {

@@ -160,9 +160,6 @@ export default function App() {
     const id = playback.getSnapshot().meta?.id;
     openTheater(items, id ? Math.max(0, items.findIndex(m => m.id === id)) : session?.index || 0, session?.title || queue?.title || '我的资源库');
   };
-  // A separate BrowserWindow would own a second player; keep playback in the
-  // main window and use OS fullscreen for the "independent window" experience.
-  const fullscreenTheater = () => window.coplayDesktop?.setFullscreen?.(true);
   useEffect(() => { if (!roomsEnabled) return; const handler = () => setRoomId(new URLSearchParams(location.search).get('room')); window.addEventListener('popstate', handler); return () => window.removeEventListener('popstate', handler); }, []);
   useEffect(() => {
     if (!roomsEnabled || page !== 'rooms') return;
@@ -275,7 +272,7 @@ export default function App() {
     {selected && <DetailModal key={selected.id} media={selected} nickname={nickname} onClose={handoffToDock} favorite={favorites.includes(selected.id)} onFavorite={() => toggleFavorite(selected)} onAdd={() => { setAddMedia(selected); setSelected(null); }} onRoom={m => startRoom(m)} onPlayed={() => recordPlay(selected)} onPlay={onDetailPlay} onTheater={() => openTheater(playableResources, Math.max(0, playableResources.findIndex(m => m.id === selected.id)), selected.title)} notify={notify} lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} />}
     {addMedia && <Modal title="收进你的播放列表" subtitle={addMedia.title} onClose={() => setAddMedia(null)}><div className="choose-playlist">{playlists.map(p => { const added = p.ids.includes(addMedia.id); return <button key={p.id} onClick={() => { setPlaylists(old => old.map(item => item.id === p.id ? { ...item, ids: added ? item.ids.filter(id => id !== addMedia.id) : [...item.ids, addMedia.id] } : item)); notify(added ? '已从列表移除' : `已加入「${p.title}」`); }}><span className="list-icon" style={{ background: p.color }}><ListMusic size={20} /></span><span><strong>{p.title}</strong><small>{p.ids.length} 个内容</small></span>{added ? <Check size={18} className="orange-text" /> : <Plus size={18} />}</button>})}</div><div className="import-footer"><button className="button button-outline full-width" onClick={() => { setNewPlaylistMedia(addMedia); setAddMedia(null); setModal('playlist'); }}><Plus size={16} />新建播放列表</button></div></Modal>}
     {queue && <QueuePlayer title={queue.title} items={queue.items} initialIndex={queue.initialIndex} mode={playbackMode} onModeChange={changeSessionMode} onClose={handoffToDock} onPlayed={recordPlay} onTheater={index => openTheater(queue.items, index, queue.title)} onIndexChange={syncSessionIndex} lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} notify={notify} />}
-    {theater && <TheaterView session={theater} onClose={closeTheater} onPlayed={recordPlay} onModeChange={changeSessionMode} onIndexChange={syncSessionIndex} onDetach={window.coplayDesktop ? fullscreenTheater : undefined} lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} notify={notify} />}
+    {theater && <TheaterView session={theater} onClose={closeTheater} onPlayed={recordPlay} onModeChange={changeSessionMode} onIndexChange={syncSessionIndex} lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} notify={notify} />}
     {session && !theater && <PlayerDock session={session} ownsPlayer={!queue && !selected} onStep={stepSession} onSelect={syncSessionIndex} onModeChange={changeSessionMode}
       onOpenPlaylist={() => { const s = playback.getSnapshot(); playback.requestResume(s.currentTime, s.meta?.id); setQueue({ title: session.title, items: session.items, initialIndex: session.index }); }}
       onTheater={() => openTheater(session.items, session.index, session.title)} onStop={stopSession}
