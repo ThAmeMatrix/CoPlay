@@ -80,8 +80,11 @@
 .playback-controls.compact .playback-play{width:34px;height:34px}
 .playback-controls.compact .playback-progress{gap:7px;font-size:11px}
 
-/* Theater: a dedicated playback screen with the directory on the right. */
-.theater-view{position:fixed;inset:0;z-index:150;display:flex;flex-direction:column;background:var(--theater-bg);color:#eef2f4}
+/* Player PAGE: a real page in the document flow (not a fixed overlay), so the
+   video stays on a plain compositor surface. Left pane never scrolls; the
+   playlist on the right is the ONLY scrollable region. */
+.player-page-active,.player-page-active body{height:100%;overflow:hidden}
+.theater-view{position:relative;display:flex;flex-direction:column;height:100vh;min-height:0;background:var(--theater-bg);color:#eef2f4;overflow:hidden}
 /* Chromium's Fullscreen API keeps <video> in the same compositor surface (unlike
    Electron's native setFullScreen which can blank the video layer). */
 .theater-view:fullscreen{width:100vw;height:100vh;max-width:none;max-height:none;inset:0;margin:0;background:var(--theater-bg)}
@@ -95,7 +98,7 @@
 .theater-actions>button{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid #ffffff30;border-radius:7px;font-size:12px;color:#dbe5e8;white-space:nowrap}
 .theater-actions>button:hover{background:#ffffff14;color:#fff}
 .theater-actions>button.active{background:var(--accent);border-color:var(--accent);color:#fff}
-.theater-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:0}
+.theater-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:0;overflow:hidden}
 .theater-main{min-width:0;min-height:0;display:flex;flex-direction:column;padding:16px 20px 10px;gap:14px;overflow:hidden}
 .theater-main>.playback-controls,.theater-main>.queue-toolbar,.theater-main>.theater-extra-actions,.theater-main>.form-error{flex-shrink:0}
 /* NEVER round or mask the video stage. Chromium's hardware video overlay
@@ -103,29 +106,37 @@
    picture disappears while the element keeps playing (readyState 4). The
    fullscreen modes never had the radius, which is why they worked. */
 .theater-stage{width:100%;flex:1;min-height:0;background:#000;border-radius:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
-@media(max-height:620px){.theater-main{overflow:auto}.theater-stage{min-height:180px}}
+@media(max-height:620px){.theater-main{gap:8px}.theater-stage{min-height:120px}}
 .theater-stage iframe,.theater-stage video{width:100%;height:100%;border:0;object-fit:contain}
 .theater-stage audio{width:90%}
 .theater-stage .bili-player,.theater-stage .native-audio-player,.theater-stage .downloaded-player{width:100%;height:100%}
 .theater-main>.playback-controls{padding:4px 6px 8px;color:#cbd5d9}
 .theater-main>.playback-controls .icon-button{color:#cbd5d9}
 .theater-main>.playback-controls .icon-button:hover{background:#ffffff18;color:#fff}
-.theater-directory{min-width:0;border-left:1px solid #ffffff18;display:flex;flex-direction:column;background:#151c22}
-.theater-directory>header{padding:16px 16px 10px;flex-shrink:0}
+.theater-directory{min-width:0;min-height:0;border-left:1px solid #ffffff18;display:flex;flex-direction:column;background:#151c22;overflow:hidden}
+.theater-directory>header{padding:14px 16px 10px;flex-shrink:0;border-bottom:1px solid #ffffff12}
 .theater-directory>header strong{font-size:14px;font-weight:600}
 .theater-directory>header span{display:block;font-size:11px;color:#93a2aa;margin-top:5px}
 .theater-search{display:flex;align-items:center;gap:7px;margin-top:12px;padding:8px 10px;border:1px solid #ffffff24;border-radius:7px;background:#ffffff0b;color:#9db0b8}
 .theater-search input{flex:1;min-width:0;border:0;background:none;outline:none;color:#eef2f4;font-size:12px}
 .theater-search input::placeholder{color:#84959d}
-.theater-items{flex:1;min-height:0;overflow:auto;padding:4px 10px 16px}
+/* Scrub bar for browsing the playlist: dragging it scrolls the list. */
+.player-list-scroll{display:flex;align-items:center;gap:9px;margin-top:10px;font-size:11px;color:#93a2aa}
+.player-list-scroll>span{white-space:nowrap;font-variant-numeric:tabular-nums}
+.player-list-scroll input{flex:1;min-width:0;height:16px;accent-color:var(--accent);cursor:pointer}
+.theater-items{position:relative;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:6px 10px 18px;scrollbar-color:#465762 #151c22;scrollbar-width:thin}
+.theater-items::-webkit-scrollbar{width:11px}
+.theater-items::-webkit-scrollbar-track{background:#151c22}
+.theater-items::-webkit-scrollbar-thumb{background:#3f505a;border:2px solid #151c22;border-radius:7px}
+.theater-items::-webkit-scrollbar-thumb:hover{background:#5c7280}
 .theater-items>button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:8px;text-align:left;color:#c5d0d5;font-size:12px}
 .theater-items>button:hover{background:#ffffff10}
 .theater-items>button.active{background:#ffffff1c;color:#fff}
 .theater-items>button>span:first-child{width:18px;flex-shrink:0;color:#8fa0a8;font-variant-numeric:tabular-nums;text-align:center}
-.theater-items>button>div{flex:1;min-width:0}
+.theater-items>button>div:not(.theater-cover){flex:1;min-width:0}
 .theater-items>button strong{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .theater-items>button small{display:block;color:#8b9ba3;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.theater-cover{width:34px;height:44px;flex-shrink:0;border-radius:4px;overflow:hidden;background:#2b343a}
+.theater-cover{width:34px;height:44px;flex:0 0 34px;border-radius:4px;overflow:hidden;background:#2b343a}
 .theater-cover img{width:100%;height:100%;object-fit:cover}
 .theater-empty{padding:26px 14px;text-align:center;font-size:12px;color:#8fa0a8;line-height:1.8}
 .theater-view.page-full .theater-head{display:none}
@@ -165,10 +176,12 @@
   .theater-page-title{width:100%}
   .theater-page-controls>.playback-controls{flex-basis:100%}
 }
+@media(max-width:1100px){.theater-body{grid-template-columns:minmax(0,1fr) 300px}}
 @media(max-width:760px){
-  .theater-body{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 210px}
+  .theater-body{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,50vh) minmax(0,1fr)}
   .theater-directory{border-left:0;border-top:1px solid #ffffff18}
-  .theater-main{padding:10px 12px 6px}
+  .theater-main{padding:10px 12px 8px;gap:8px}
+  .theater-main>.theater-extra-actions{display:none}
   .theater-actions>button span{display:none}
 }
 

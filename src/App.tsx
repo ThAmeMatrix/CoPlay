@@ -200,7 +200,12 @@ export default function App() {
 
   if (roomsEnabled && roomId) return <><Room roomId={roomId} nickname={nickname} onLeave={leaveRoom} notify={notify} onPlayed={recordPlay} />{toast && <Toast text={toast} />}</>;
 
-  return <div className={`app-shell ${session && !theater ? 'dock-visible' : ''}`}>
+  // The enlarged player is its own PAGE, not an overlay on top of the library.
+  // Rendering only this view keeps the video in the normal document flow and
+  // leaves the playlist as the single scrollable region.
+  if (theater) return <><DesktopDownloads /><TheaterView session={theater} onClose={closeTheater} onPlayed={recordPlay} onModeChange={changeSessionMode} onIndexChange={syncSessionIndex} lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} notify={notify} />{toast && <Toast text={toast} />}</>;
+
+  return <div className={`app-shell ${session ? 'dock-visible' : ''}`}>
     <DesktopDownloads />
     {mobileNav && <div className="sidebar-shade" onClick={() => setMobileNav(false)} />}
     <aside className={`sidebar ${mobileNav ? 'mobile-open' : ''}`}>
@@ -272,8 +277,7 @@ export default function App() {
     {selected && <DetailModal key={selected.id} media={selected} nickname={nickname} onClose={handoffToDock} favorite={favorites.includes(selected.id)} onFavorite={() => toggleFavorite(selected)} onAdd={() => { setAddMedia(selected); setSelected(null); }} onRoom={m => startRoom(m)} onPlayed={() => recordPlay(selected)} onPlay={onDetailPlay} onTheater={() => openTheater(playableResources, Math.max(0, playableResources.findIndex(m => m.id === selected.id)), selected.title)} notify={notify} lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} />}
     {addMedia && <Modal title="收进你的播放列表" subtitle={addMedia.title} onClose={() => setAddMedia(null)}><div className="choose-playlist">{playlists.map(p => { const added = p.ids.includes(addMedia.id); return <button key={p.id} onClick={() => { setPlaylists(old => old.map(item => item.id === p.id ? { ...item, ids: added ? item.ids.filter(id => id !== addMedia.id) : [...item.ids, addMedia.id] } : item)); notify(added ? '已从列表移除' : `已加入「${p.title}」`); }}><span className="list-icon" style={{ background: p.color }}><ListMusic size={20} /></span><span><strong>{p.title}</strong><small>{p.ids.length} 个内容</small></span>{added ? <Check size={18} className="orange-text" /> : <Plus size={18} />}</button>})}</div><div className="import-footer"><button className="button button-outline full-width" onClick={() => { setNewPlaylistMedia(addMedia); setAddMedia(null); setModal('playlist'); }}><Plus size={16} />新建播放列表</button></div></Modal>}
     {queue && <QueuePlayer title={queue.title} items={queue.items} initialIndex={queue.initialIndex} mode={playbackMode} onModeChange={changeSessionMode} onClose={handoffToDock} onPlayed={recordPlay} onTheater={index => openTheater(queue.items, index, queue.title)} onIndexChange={syncSessionIndex} lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} notify={notify} />}
-    {theater && <TheaterView session={theater} onClose={closeTheater} onPlayed={recordPlay} onModeChange={changeSessionMode} onIndexChange={syncSessionIndex} lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} notify={notify} />}
-    {session && !theater && <PlayerDock session={session} ownsPlayer={!queue && !selected} onStep={stepSession} onSelect={syncSessionIndex} onModeChange={changeSessionMode}
+    {session && <PlayerDock session={session} ownsPlayer={!queue && !selected} onStep={stepSession} onSelect={syncSessionIndex} onModeChange={changeSessionMode}
       onOpenPlaylist={() => { const s = playback.getSnapshot(); playback.requestResume(s.currentTime, s.meta?.id); setQueue({ title: session.title, items: session.items, initialIndex: session.index }); }}
       onTheater={() => openTheater(session.items, session.index, session.title)} onStop={stopSession}
       lyricsEnabled={settings.showLyrics} onToggleLyrics={toggleLyrics} notify={notify} shortcuts={settings.shortcuts} />}
