@@ -30,7 +30,6 @@ declare global {
       onCommand?: (listener: (command: DesktopCommand) => void) => () => void;
       setSettings?: (settings: DesktopSettings) => void;
       setTheme?: (theme: 'light' | 'dark') => void;
-      setFullscreen?: (on: boolean) => void;
       onFullscreenState?: (listener: (on: boolean) => void) => () => void;
       onShortcutConflicts?: (listener: (conflicts: string[]) => void) => () => void;
       bubbleReady?: () => void;

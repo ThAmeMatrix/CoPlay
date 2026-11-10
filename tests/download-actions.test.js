@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BATCH_CHUNK_SIZE, MAX_BATCH_REQUEST, chunkItems, canDownloadMedia, downloadKey, downloadPage, downloadRequest, hasLocalCopy } from '../src/download-rules.ts';
+import { BATCH_CHUNK_SIZE, MAX_BATCH_REQUEST, chunkItems, canDownloadMedia, downloadedKey, downloadedKeys, downloadKey, downloadPage, downloadRequest, hasLocalCopy } from '../src/download-rules.ts';
 
 const bvid = 'BV1B7411m7LV';
 const media = (patch = {}) => ({
@@ -38,6 +38,20 @@ test('a whole selection is chunked without any cap or lost items', () => {
   }
   assert.equal(chunkItems(Array.from({ length: 40 }, (_, i) => i)).length, 4);
   assert.equal(chunkItems([1, 2, 3], 100).length, 1, 'chunk size is capped by the server ceiling');
+});
+
+test('downloaded copies are looked up under the download key, not the embed URL', () => {
+  const item = media({
+    playbackUrl: 'https://player.bilibili.com/player.html?bvid=BV9ZZZZZZZZZ&p=1&autoplay=0',
+    download: { provider: 'bilibili', bvid: 'BV2B7411m7LV', page: 2, available: true },
+  });
+  assert.equal(downloadedKey(item), 'bili:BV2B7411m7LV:p2', 'must match the server-registered key');
+  assert.deepEqual(downloadedKeys(item), ['bili:BV2B7411m7LV:p2', 'bili:BV9ZZZZZZZZZ:p1']);
+  assert.equal(hasLocalCopy([{ key: 'bili:BV2B7411m7LV:p2', complete: true }], item), true);
+  // Without download metadata the legacy URL-derived key is still used.
+  const legacy = media({ download: undefined, playbackUrl: 'https://player.bilibili.com/player.html?bvid=BV1B7411m7LV&p=4' });
+  assert.equal(downloadedKey(legacy), 'bili:BV1B7411m7LV:p4');
+  assert.equal(downloadedKey(media({ download: undefined, playbackUrl: 'https://example.com/a.mp4' })), 'resource:video-a');
 });
 
 test('completed local copies are never offered for re-download', () => {

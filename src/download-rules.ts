@@ -1,5 +1,6 @@
-// Pure download helpers shared by the renderer. Keep this file free of runtime
-// imports so both Vite and the Node test runner can load it directly.
+// Pure download helpers shared by the renderer and the Node test runner.
+// Deliberately keeps NO runtime imports: Node's TS loader cannot resolve
+// extension-less relative imports, and tests load this file directly.
 import type { Media } from './types';
 
 export interface DownloadFile { url: string; filename: string; size: number }
@@ -43,4 +44,31 @@ export interface LocalCopyRecord { key: string; complete: boolean }
 /** A completed local copy keyed exactly like the download request must never be re-downloaded. */
 export function hasLocalCopy(items: LocalCopyRecord[], media: Media): boolean {
   return canDownloadMedia(media) && items.some(item => item.key === downloadKey(media) && item.complete);
+}
+/** Legacy lookup key derived from the embed URL (BV id / page can disagree with the download request). */
+function legacyDownloadedKey(media: Media): string {
+  const value = media.playbackUrl || media.episodes?.[media.defaultEpisode || 0]?.url || '';
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'https:' && url.hostname === 'player.bilibili.com' && url.pathname === '/player.html') {
+      const bvid = url.searchParams.get('bvid') || '';
+      const page = Math.min(1000, Math.max(1, Math.floor(Number(url.searchParams.get('p') || url.searchParams.get('page')) || 1)));
+      if (/^BV[a-zA-Z0-9]{10}$/.test(bvid)) return `bili:${bvid}:p${page}`;
+    }
+  } catch { /* not a B 站 embed URL */ }
+  return `resource:${media.id}`;
+}
+/**
+ * The server files a finished download under the SAME key the request used.
+ * Looking it up by the embed URL alone can miss the copy and make playback fall
+ * back to the slow B 站 prepare API even though the file is already on disk.
+ */
+export function downloadedKey(media: Media): string {
+  return canDownloadMedia(media) ? downloadKey(media) : legacyDownloadedKey(media);
+}
+/** Canonical key first, legacy key as a compatibility fallback. */
+export function downloadedKeys(media: Media): string[] {
+  const canonical = downloadedKey(media);
+  const legacy = legacyDownloadedKey(media);
+  return legacy === canonical ? [canonical] : [canonical, legacy];
 }

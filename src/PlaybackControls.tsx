@@ -24,44 +24,45 @@ export default function PlaybackControls({ state, compact = false, onFullscreen,
   const disabled = !s.controllable;
   const max = Math.max(s.duration, 1);
 
-  // Scrubbing keeps its own value while the pointer is down. Without this the
-  // 8 Hz playback snapshot fights the drag and the thumb snaps back.
+  // Scrubbing is a purely local preview. Seeking the media on every input event
+  // forces a re-buffer (and an HTTP range request for streamed files) which is
+  // what made dragging feel sticky. Exactly ONE seek happens on release.
   const [scrub, setScrub] = useState<number | null>(null);
+  const scrubValue = useRef<number | null>(null);
   const scrubbing = useRef(false);
-  const pending = useRef<number | null>(null);
-  const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const flush = () => {
-    if (seekTimer.current) { clearTimeout(seekTimer.current); seekTimer.current = undefined; }
-    if (pending.current !== null) { runRef.current('seekTo', pending.current); pending.current = null; }
-  };
   const endScrub = () => {
-    if (!scrubbing.current && scrub === null) return;
+    if (!scrubbing.current && scrubValue.current === null) return;
     scrubbing.current = false;
-    flush();
-    // Hold the local value briefly until the media's seeked event reaches the
-    // bus, otherwise the thumb flickers back before jumping forward again.
+    const value = scrubValue.current;
+    playback.setScrubbing(false);
+    if (value !== null) runRef.current('seekTo', value);
+    // Keep the local value until the media reports the new position, otherwise
+    // the thumb flickers back to the old playhead before jumping forward.
     clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(() => setScrub(null), 200);
+    settleTimer.current = setTimeout(() => { scrubValue.current = null; setScrub(null); }, 1500);
   };
   const endRef = useRef(endScrub); endRef.current = endScrub;
   useEffect(() => {
     const up = () => endRef.current();
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
-    return () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+    return () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); playback.setScrubbing(false); };
   }, []);
-  useEffect(() => () => { clearTimeout(seekTimer.current); clearTimeout(settleTimer.current); }, []);
-  /** Trailing-edge throttle: at most one real seek per 90 ms, plus a final one on release. */
+  useEffect(() => () => clearTimeout(settleTimer.current), []);
+  useEffect(() => {
+    if (scrubbing.current || scrubValue.current === null) return;
+    if (Math.abs(s.currentTime - scrubValue.current) <= 0.4) {
+      scrubValue.current = null;
+      clearTimeout(settleTimer.current);
+      setScrub(null);
+    }
+  }, [s.currentTime]);
   const seek = (value: number) => {
     clearTimeout(settleTimer.current);
+    scrubValue.current = value;
+    playback.setScrubbing(true);
     setScrub(value);
-    pending.current = value;
-    if (seekTimer.current) return;
-    seekTimer.current = setTimeout(() => {
-      seekTimer.current = undefined;
-      if (pending.current !== null) { runRef.current('seekTo', pending.current); pending.current = null; }
-    }, 90);
   };
 
   const shown = scrub ?? Math.min(s.currentTime, max);

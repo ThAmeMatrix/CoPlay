@@ -5,7 +5,7 @@ import { attachLocalCopy, localAccept, restoreLocalFile, useLocalAsset } from '.
 import { api } from './hooks';
 import { bilibiliEmbedUrl, bilibiliPlaybackTarget } from './bilibili-player';
 import { musicEmbedUrl, requiresMusicPlayClick } from './music-player';
-import { downloadedKey, refreshDownloadedLibrary, useDownloadedLibrary, type DownloadedMedia } from './downloaded-media';
+import { downloadedKey, downloadedKeys, refreshDownloadedLibrary, useDownloadedLibrary, type DownloadedMedia } from './downloaded-media';
 
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoHTMLAttributes<HTMLVideoElement>>(function VideoPlayer({ src, ...props }, ref) {
   const player = useRef<HTMLVideoElement | null>(null);
@@ -33,20 +33,31 @@ export function LocalRestore({ media, onError }: { media: Media; onError?: (mess
 }
 type PlayerProps = { media: Media; autoPlay?: boolean; onEnded?: () => void; onError?: () => void };
 export function ResourcePlayer(props: PlayerProps) {
-  const attached = useLocalAsset(downloadedKey(props.media));
+  const keys = downloadedKeys(props.media);
+  const attached = useLocalAsset(keys[0]) || useLocalAsset(keys[1] || '');
   if (attached) return <OnlineResourcePlayer {...props} media={{ ...props.media, playbackType: props.media.kind === '音乐' ? 'audio' : 'video', playbackUrl: attached.url }} />;
   if (props.media.playbackType === 'local') return <OnlineResourcePlayer {...props} />;
   return <CheckDownloadedPlayer key={`${props.media.id}:${props.media.playbackUrl}`} {...props} />;
 }
+/**
+ * Never render the online (B 站) player before the local library is known:
+ * a downloaded file must go straight to the local copy, with no prepare request.
+ * The refresh is forced on each mount so a download that just finished is
+ * picked up immediately instead of showing the online fallback from a stale
+ * snapshot. `/api/downloaded-media` is a local read, so this costs no network.
+ */
 function CheckDownloadedPlayer(props: PlayerProps) {
   const library = useDownloadedLibrary();
   const [checked, setChecked] = useState(false);
   useEffect(() => { let active = true; void refreshDownloadedLibrary(true).then(() => { if (active) setChecked(true); }); return () => { active = false; }; }, []);
-  if (!checked) return <div className="local-copy-status" role="status"><LoaderCircle size={22} className="spin" />正在检查本地下载…</div>;
+  if (!checked || !library.ready) return <div className="local-copy-status" role="status"><LoaderCircle size={22} className="spin" />正在检查本地下载…</div>;
   return <PreferDownloadedPlayer {...props} library={library} />;
 }
 function PreferDownloadedPlayer({ library, ...props }: PlayerProps & { library: { ready: boolean; items: DownloadedMedia[] } }) {
-  const match = () => library.items.find(item => item.key === downloadedKey(props.media) && item.complete) || null;
+  const match = () => {
+    const keys = downloadedKeys(props.media);
+    return library.items.find(item => keys.includes(item.key) && item.complete) || null;
+  };
   const [copy, setCopy] = useState<DownloadedMedia | null | undefined>(() => library.ready ? match() : undefined);
   const [segment, setSegment] = useState(0), [failed, setFailed] = useState(false);
   useEffect(() => { if (copy === undefined && library.ready) setCopy(match()); }, [copy, library]);

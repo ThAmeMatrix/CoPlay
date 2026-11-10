@@ -301,8 +301,13 @@ else {
       webPreferences: { preload: path.join(root, 'desktop/preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, webviewTag: false, navigateOnDragDrop: false, safeDialogs: true, spellcheck: false },
     });
     const session = window.webContents.session;
-    session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    session.setPermissionCheckHandler(() => false);
+    // The Fullscreen API needs transient activation AND the `fullscreen`
+    // permission. Denying every permission broke CSS/HTML5 fullscreen; keep the
+    // blanket denial for everything else and allow it only for our own origin.
+    const isAppOrigin = value => { try { return new URL(value).origin === LOOPBACK_ORIGIN; } catch { return false; } };
+    const allowFullscreen = (permission, origin) => permission === 'fullscreen' && (!origin || isAppOrigin(origin));
+    session.setPermissionRequestHandler((_contents, permission, callback, details) => callback(allowFullscreen(permission, details?.requestingUrl)));
+    session.setPermissionCheckHandler((_contents, permission, requestingOrigin, details) => allowFullscreen(permission, requestingOrigin || details?.requestingUrl));
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-attach-webview', event => event.preventDefault());
     window.webContents.on('will-navigate', event => { if (!appUrl(event.url)) event.preventDefault(); });
@@ -368,16 +373,10 @@ else {
       bubbleForced = false; bubbleDismissed = true;
       if (bubble && !bubble.isDestroyed()) bubble.hide();
     });
-    ipcMain.on('coplay:fullscreen', (event, value) => {
-      if (!validSender(event, window) && !validSender(event, theater)) return;
-      const target = validSender(event, theater) ? theater : window;
-      const on = value === true;
-      // Windows fullscreen transitions are expensive; ignore redundant toggles
-      // so double clicks / repeated shortcut presses cannot make the UI stutter.
-      if (target.isFullScreen() === on) return;
-      // enter-full-screen / leave-full-screen report the authoritative state.
-      target.setFullScreen(on);
-    });
+    // Native BrowserWindow.setFullScreen() is intentionally NOT exposed: on
+    // Windows it swaps the compositor surface and blanks hardware-accelerated
+    // <video> layers. The renderer uses Chromium's Fullscreen API instead, and
+    // the enter/leave-full-screen events below keep state in sync.
     ipcMain.on('coplay:open-theater', event => { if (validSender(event, window)) openTheaterWindow(); });
     ipcMain.on('coplay:close-theater', event => {
       if (!validSender(event, theater)) return;
@@ -446,8 +445,12 @@ else {
       if (tray && !tray.isDestroyed()) tray.destroy();
       globalShortcut.unregisterAll();
     });
+    // Native setFullScreen and the HTML5 Fullscreen API emit different events;
+    // both must keep the renderer's fullscreen state in sync.
     window.on('enter-full-screen', () => window.webContents.send('coplay:fullscreen-state', true));
     window.on('leave-full-screen', () => window.webContents.send('coplay:fullscreen-state', false));
+    window.on('enter-html-full-screen', () => window.webContents.send('coplay:fullscreen-state', true));
+    window.on('leave-html-full-screen', () => window.webContents.send('coplay:fullscreen-state', false));
     window.once('ready-to-show', () => { if (!smoke) window.show(); });
     if (!smoke) { setupTray(); registerShortcuts(); }
     if (smoke) {

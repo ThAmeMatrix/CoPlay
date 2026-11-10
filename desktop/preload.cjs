@@ -8,14 +8,13 @@ function on(channel, callback) {
 }
 
 contextBridge.exposeInMainWorld('coplayDesktop', Object.freeze({
-  version: '1.8.0',
+  version: '1.9.0',
   onDownload: callback => on('coplay:download', callback),
   publishPlayback: state => ipcRenderer.send('coplay:playback-state', state),
   onCommand: callback => on('coplay:command', callback),
   setSettings: settings => ipcRenderer.send('coplay:settings', settings),
   setTheme: theme => ipcRenderer.send('coplay:theme', theme),
   onShortcutConflicts: callback => on('coplay:shortcut-conflicts', callback),
-  setFullscreen: value => ipcRenderer.send('coplay:fullscreen', value === true),
   onFullscreenState: callback => on('coplay:fullscreen-state', callback),
   openTheater: () => ipcRenderer.send('coplay:open-theater'),
   closeTheater: () => ipcRenderer.send('coplay:close-theater'),

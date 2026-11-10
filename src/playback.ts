@@ -57,6 +57,8 @@ class PlaybackBus {
   private lastCommand: { action: string; at: number } | null = null;
   private publishTimer: ReturnType<typeof setTimeout> | undefined;
   private started = false;
+  /** While the user drags a slider, freeze snapshots so React cannot fight the pointer. */
+  private scrubbing = false;
 
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.snapshot;
@@ -96,6 +98,8 @@ class PlaybackBus {
   }
   setQueueHandlers(handlers: { previous: () => void; next: () => void; cycleMode?: () => void } | null) { this.queue = handlers; }
   setShortcuts(map: ShortcutMap) { this.shortcuts = normalizeShortcuts(map); }
+  /** Suppress progress snapshots while a slider is being dragged. */
+  setScrubbing = (on: boolean) => { this.scrubbing = on; };
   /** The active owner reports its rule so remote surfaces can show / change it. */
   setMode(label: string) { if (label && label !== this.snapshot.mode) this.set({ mode: label.slice(0, 40) }); }
   /** Preserve the playhead when the player is remounted into a different layout. */
@@ -145,7 +149,7 @@ class PlaybackBus {
     this.set({
       controllable: true, embedded: false,
       playing: !element.paused && !element.ended,
-      currentTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
+      currentTime: this.scrubbing ? this.snapshot.currentTime : (Number.isFinite(element.currentTime) ? element.currentTime : 0),
       duration: Number.isFinite(element.duration) ? element.duration : 0,
       volume: element.volume, muted: element.muted,
     });
@@ -161,11 +165,26 @@ class PlaybackBus {
     } else if (this.element) this.readElement();
   };
 
-  /** Single source of truth for OS fullscreen. State comes from real events. */
+  /**
+   * Use Chromium's own Fullscreen API rather than Electron's native
+   * BrowserWindow.setFullScreen(). Native fullscreen swaps the compositor
+   * surface on Windows, which blanks hardware-accelerated <video> layers;
+   * the HTML5 path keeps the video in the same rendering surface and Electron
+   * still expands the window to the whole screen. If it is unavailable we
+   * degrade to the CSS page-fullscreen layout (state only, no OS change).
+   */
   setFullscreen = (enabled: boolean) => {
-    if (window.coplayDesktop?.setFullscreen) window.coplayDesktop.setFullscreen(enabled);
-    else if (enabled && !document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => {});
-    else if (!enabled && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    const doc = document;
+    if (!enabled) {
+      if (doc.fullscreenElement) void doc.exitFullscreen().catch(() => {});
+      this.set({ fullscreen: false });
+      return;
+    }
+    if (doc.fullscreenElement) { this.set({ fullscreen: true }); return; }
+    const target = doc.querySelector<HTMLElement>('.theater-view') || doc.documentElement;
+    const request = target.requestFullscreen?.();
+    if (!request) { this.set({ fullscreen: true }); return; }
+    void request.catch(() => this.set({ fullscreen: true }));
   };
   toggleFullscreen = () => this.setFullscreen(!this.snapshot.fullscreen);
 
@@ -214,6 +233,7 @@ class PlaybackBus {
     // A ~8 Hz clock keeps the progress bar visually smooth; when the element is
     // still attached we only read it instead of re-scanning the whole document.
     window.setInterval(() => {
+      if (this.scrubbing) return;
       if (this.element?.isConnected) this.readElement();
       else this.syncDom();
     }, 120);

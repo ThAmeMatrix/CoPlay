@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, Check, LoaderCircle } from 'lucide-react';
 import type { Media } from './types';
 import { api } from './hooks';
-import { useDownloadedLibrary, watchDownload } from './downloaded-media';
+import { downloadedKeys, useDownloadedLibrary, watchDownload } from './downloaded-media';
 
 type DownloadPlan = { downloads: { url: string; filename: string; size: number }[]; expiresAt: number; quality: string; message: string };
 export default function DownloadPanel({ media, page }: { media: Media; page: number }) {
   const library = useDownloadedLibrary();
-  const downloaded = library.items.find(item => item.key === `bili:${media.download?.bvid}:p${page}` && item.complete);
+  const keys = downloadedKeys(media);
+  const downloaded = library.items.find(item => keys.includes(item.key) && item.complete);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [plan, setPlan] = useState<DownloadPlan | null>(null);

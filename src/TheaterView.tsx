@@ -28,8 +28,11 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
   const root = useRef<HTMLDivElement>(null);
   const media = items[state.index];
   // OS fullscreen is owned by the playback bus, which listens to real
-  // fullscreenchange / IPC events. No optimistic local copy that can desync.
+  // fullscreenchange events. Both fullscreen modes share the SAME layout that
+  // is known to render video correctly: stage fills the viewport, directory and
+  // header are hidden, and a floating transport stays reachable.
   const fullscreen = useFullscreen();
+  const fullLayout = pageFull || fullscreen;
   const visible = useMemo(() => items.map((item, index) => ({ item, index })).filter(({ item }) => mediaMatchesSearch(item, query)), [items, query]);
   const played = useRef(onPlayed); played.current = onPlayed;
   const step = (reason: 'ended' | 'next' | 'previous') => { const choice = Math.random(); setState(current => stepQueue(current, items.length, mode, reason, () => choice)); };
@@ -56,9 +59,11 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (pageFullRef.current) setPageFull(false);
-        else if (playback.getSnapshot().fullscreen) playback.setFullscreen(false);
-        else closeRef.current();
+        // Exiting fullscreen must never close the player, even if Chromium has
+        // already cleared document.fullscreenElement before this handler runs.
+        if (document.fullscreenElement || playback.getSnapshot().fullscreen) { playback.setFullscreen(false); return; }
+        if (pageFullRef.current) { setPageFull(false); return; }
+        closeRef.current();
         return;
       }
       if (event.key === 'F11') { event.preventDefault(); playback.toggleFullscreen(); }
@@ -72,9 +77,10 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
   const toggleDirect = () => playback.toggleFullscreen();
   /** Page fullscreen is CSS-only: it fills the app window without OS fullscreen. */
   const togglePage = () => setPageFull(value => !value);
+  const exitFullLayout = () => { setPageFull(false); if (fullscreen) playback.setFullscreen(false); };
   const transport = <PlaybackControls onFullscreen={toggleDirect} fullscreen={fullscreen} embeddedHint />;
 
-  return <div ref={root} className={`theater-view ${pageFull ? 'page-full' : ''}`} role="region" aria-label="播放界面">
+  return <div ref={root} className={`theater-view ${fullLayout ? 'page-full' : ''}`} role="region" aria-label="播放界面">
     <header className="theater-head">
       <button className="theater-back" onClick={onClose}><ArrowLeft size={17} />返回</button>
       <div className="theater-titles"><strong>{media?.title || title}</strong><span>{title} · {state.index + 1} / {items.length} · {media?.subtitle || media?.platform}</span></div>
@@ -89,7 +95,7 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
         <div className="theater-stage" key={media?.id}>
           {media ? <ResourcePlayer media={media} onEnded={() => step('ended')} onError={() => setError('这个媒体暂时无法播放，可以跳到下一项。')} /> : <p className="theater-empty">列表里暂时没有可播放的内容。</p>}
         </div>
-        {!pageFull && <>
+        {!fullLayout && <>
           {transport}
           <div className="queue-toolbar theater-toolbar">
             <PlaybackModeSelect label="队列播放规则" value={mode} onChange={changeMode} />
@@ -113,12 +119,12 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
     </div>
     {/* Page-fullscreen keeps an always-reachable overlay so the user can exit
         and control playback; otherwise the view looks like a dead black screen. */}
-    {pageFull && <div className="theater-page-controls">
+    {fullLayout && <div className="theater-page-controls">
       <div className="theater-page-title"><strong>{media?.title || title}</strong><span>{state.index + 1} / {items.length}</span></div>
       {transport}
       <div className="theater-page-actions">
         <button className="button button-outline" onClick={toggleDirect} title="系统级全屏">{fullscreen ? <Minimize2 size={15} /> : <MonitorPlay size={15} />}{fullscreen ? '退出全屏' : '直接全屏'}</button>
-        <button className="button button-outline" onClick={togglePage}><Minimize2 size={15} />退出页面全屏</button>
+        <button className="button button-outline" onClick={exitFullLayout}><Minimize2 size={15} />退出页面全屏</button>
       </div>
     </div>}
   </div>;

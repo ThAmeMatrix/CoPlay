@@ -1,7 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import type { Media } from './types';
-import { bilibiliPlaybackTarget } from './bilibili-player';
 import { api } from './hooks';
+export { downloadedKey, downloadedKeys } from './download-rules';
 
 export type DownloadedFile = { id: string; filename: string; size: number; segment: number; url: string; available: boolean };
 export type DownloadedMedia = { key: string; title: string; page: number; savedAt: number; files: DownloadedFile[]; complete: boolean };
@@ -9,12 +8,6 @@ let snapshot: { ready: boolean; items: DownloadedMedia[] } = { ready: false, ite
 const listeners = new Set<() => void>();
 let pending: Promise<void> | null = null, checkedAt = 0;
 const publish = () => listeners.forEach(listener => listener());
-export function downloadedKey(media: Media) {
-  const selected = media.episodes?.[media.defaultEpisode || 0];
-  const target = bilibiliPlaybackTarget(media.playbackUrl || selected?.url);
-  if (target?.bvid) return `bili:${target.bvid}:p${target.page}`;
-  return `resource:${media.id}`;
-}
 export async function refreshDownloadedLibrary(force = false) {
   if (pending) return pending;
   if (!force && snapshot.ready && Date.now() - checkedAt < 5000) return;
