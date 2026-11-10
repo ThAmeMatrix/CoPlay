@@ -85,9 +85,13 @@ export function createPlayback({ fetcher = safeFetch, streamer = safeStream, now
         const bound = new Transform({ transform(chunk, _encoding, callback) { bytes += chunk.length; callback(bytes > expected ? new Error('视频片段超过声明大小') : null, chunk); }, flush(callback) { callback(bytes !== expected ? new Error('视频片段传输中断') : null); } });
         await pipeline(stream, bound, res, { signal: abort.signal });
       } catch (e) {
-        stream?.destroy();
-        if (!res.headersSent && !res.destroyed) { res.removeHeader('Content-Range'); res.removeHeader('Content-Length'); res.status(502).json({ error: e.message }); }
-        else res.destroy();
+        // Closing the app destroys the response; that is a cancellation, not
+        // an error. Never write to a dead socket or let cleanup throw.
+        try { stream?.destroy(); } catch { /* already destroyed */ }
+        if (res.destroyed || res.writableEnded || res.writableFinished || abort.signal.aborted) return;
+        if (!res.headersSent) {
+          try { res.removeHeader('Content-Range'); res.removeHeader('Content-Length'); res.status(502).json({ error: e.message }); } catch { /* socket gone */ }
+        } else { try { res.destroy(); } catch { /* socket gone */ } }
       }
     },
   };

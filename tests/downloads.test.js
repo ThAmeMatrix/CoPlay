@@ -49,6 +49,35 @@ test('downloads stream partial content with attachment name; bad ranges and expi
   assert.equal((await fetch(url, { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
   now += 600001; assert.equal((await fetch(url)).status, 410);
 });
+test('closing the app mid-download cancels the stream instead of reporting an error', async () => {
+  let sendPromise;
+  const service = createDownloads({
+    fetcher: fixture(),
+    streamer: async (_url, { range, signal }) => {
+      if (range === 'bytes=0-0') return streamed(Buffer.from('x'), 206);
+      // A stream that stays open until the client/app goes away.
+      const hanging = new Readable({ read() {} });
+      Object.assign(hanging, { statusCode: 200, headers: { 'content-type': 'video/mp4', 'content-length': '10' } });
+      signal?.addEventListener('abort', () => hanging.destroy());
+      return hanging;
+    },
+    now: () => 1,
+  });
+  const app = express();
+  app.get('/api/downloads/:token/file', (req, res) => { sendPromise = service.send(req, res); });
+  const server = createServer(app);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const plan = await service.prepare({ bvid });
+  const controller = new AbortController();
+  const response = fetch(`http://127.0.0.1:${server.address().port}${plan.downloads[0].url}`, { signal: controller.signal }).catch(() => null);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  // Same effect as httpServer.closeAllConnections() during app shutdown.
+  controller.abort(); server.closeAllConnections();
+  await assert.doesNotReject(sendPromise, 'an aborted download must not reject into an unhandled error');
+  await response;
+  await new Promise(resolve => server.close(resolve));
+});
+
 test('streaming rejects local URLs and foreign CDNs before connecting; filenames are safe', async () => {
   await assert.rejects(safeStream('http://127.0.0.1/'), /本地|内网/);
   await assert.rejects(safeStream('https://example.com/', { allowHost: biliMediaHost }), /不属于/);

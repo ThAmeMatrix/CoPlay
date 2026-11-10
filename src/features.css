@@ -96,8 +96,14 @@
 .theater-actions>button:hover{background:#ffffff14;color:#fff}
 .theater-actions>button.active{background:var(--accent);border-color:var(--accent);color:#fff}
 .theater-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:0}
-.theater-main{min-width:0;display:flex;flex-direction:column;padding:16px 20px 10px;gap:14px;overflow:auto}
-.theater-stage{width:100%;flex:1;min-height:220px;background:#000;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative}
+.theater-main{min-width:0;min-height:0;display:flex;flex-direction:column;padding:16px 20px 10px;gap:14px;overflow:hidden}
+.theater-main>.playback-controls,.theater-main>.queue-toolbar,.theater-main>.theater-extra-actions,.theater-main>.form-error{flex-shrink:0}
+/* NEVER round or mask the video stage. Chromium's hardware video overlay
+   cannot be clipped to a rounded rectangle on some Windows GPU drivers: the
+   picture disappears while the element keeps playing (readyState 4). The
+   fullscreen modes never had the radius, which is why they worked. */
+.theater-stage{width:100%;flex:1;min-height:0;background:#000;border-radius:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
+@media(max-height:620px){.theater-main{overflow:auto}.theater-stage{min-height:180px}}
 .theater-stage iframe,.theater-stage video{width:100%;height:100%;border:0;object-fit:contain}
 .theater-stage audio{width:90%}
 .theater-stage .bili-player,.theater-stage .native-audio-player,.theater-stage .downloaded-player{width:100%;height:100%}
@@ -126,7 +132,7 @@
 .theater-view.page-full .theater-body{grid-template-columns:minmax(0,1fr)}
 .theater-view.page-full .theater-directory{display:none}
 .theater-view.page-full .theater-main{padding:0}
-.theater-view.page-full .theater-stage{border-radius:0;min-height:0}
+.theater-view.page-full .theater-stage{border-radius:0;min-height:0;flex:1}
 .theater-view.page-full .bili-player-toolbar,.theater-view.page-full .bili-player-notice,.theater-view.page-full .downloaded-player-label{display:none}
 /* Every player variant must actually fill the stage; a default-sized <video>
    inside a flex wrapper otherwise shows a tiny/blank frame. */
@@ -135,6 +141,14 @@
 .theater-stage .downloaded-player-stage video,.theater-stage .platform-music-player iframe{width:100%;height:100%;min-height:0;object-fit:contain}
 .theater-stage video::-webkit-media-controls{display:none !important}
 .theater-stage .local-copy-status{min-height:120px}
+.theater-stalled{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;background:#0b1014f0;color:#eef2f4}
+.theater-stalled strong{font-size:16px;font-weight:600}
+.theater-stalled p{max-width:420px;font-size:13px;line-height:1.8;color:#aebdc4}
+.theater-stalled>div{display:flex;gap:10px}
+.theater-stalled .button{background:#ffffff14;border-color:#ffffff30;color:#eef2f4}
+/* Same rounded-mask problem on the other video surfaces: Chromium cannot clip
+   a hardware video overlay to a rounded rectangle on some Windows drivers. */
+.detail-player:has(video),.detail-player:has(iframe),.dock-stage:has(video){border-radius:0}
 /* Page-fullscreen overlay: always reachable, so it can never look like a dead screen. */
 .theater-page-controls{position:absolute;left:0;right:0;bottom:0;z-index:12;display:flex;align-items:center;gap:18px;padding:12px 22px 16px;background:linear-gradient(0deg,#0b1014f2,#0b1014b8 70%,transparent);color:#eef2f4}
 .theater-page-title{min-width:0;width:180px;flex-shrink:0}

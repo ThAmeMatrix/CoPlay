@@ -22,6 +22,9 @@ let registered = [];
 let lyricsWindow;
 let lyricsDismissed = false;
 let lyricsPayload = emptyLyrics();
+// Shared with before-quit so in-flight downloads are cancelled gracefully
+// before the HTTP server tears their sockets down.
+const activeDownloads = new Set();
 // Downloads go to a single, persisted destination chosen in Preferences.
 // No native save dialog is shown for individual or batch downloads.
 let savedDownloadDir = '';
@@ -382,7 +385,6 @@ else {
       if (!validSender(event, theater)) return;
       if (theater && !theater.isDestroyed()) theater.close();
     });
-    const activeDownloads = new Set();
     function uniqueSavePath(folder, filename) {
       const base = path.basename(String(filename || 'video.mp4')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || 'video.mp4';
       let candidate = path.join(folder, base);
@@ -402,10 +404,15 @@ else {
       // Every download goes to the directory chosen in Preferences — no save dialog.
       item.setSavePath(uniqueSavePath(downloadFolder(), item.getFilename()));
       const update = state => {
-        const received = item.getReceivedBytes(), total = item.getTotalBytes();
-        const payload = { id: item.getURL(), filename: item.getFilename(), received, total, state };
-        for (const win of [window, theater]) if (win && !win.isDestroyed()) win.webContents.send('coplay:download', payload);
-        if (!window.isDestroyed()) window.setProgressBar(state === 'progressing' && total ? received / total : -1);
+        // A cancelled download can emit 'done' after the window/app is gone.
+        // Treat that as normal shutdown, never as an error.
+        if (shuttingDown) return;
+        try {
+          const received = item.getReceivedBytes(), total = item.getTotalBytes();
+          const payload = { id: item.getURL(), filename: item.getFilename(), received, total, state };
+          for (const win of [window, theater]) if (win && !win.isDestroyed()) win.webContents.send('coplay:download', payload);
+          if (window && !window.isDestroyed()) window.setProgressBar(state === 'progressing' && total ? received / total : -1);
+        } catch { /* window closed mid-update */ }
       };
       item.on('updated', (_event, state) => update(state));
       item.once('done', (_event, state) => { activeDownloads.delete(item); update(state); });
@@ -430,11 +437,13 @@ else {
         updateBubble();
         return;
       }
-      if (activeDownloads.size && !shuttingDown && !smoke) {
+      if (activeDownloads.size && !forceQuit && !shuttingDown && !smoke && !window.isDestroyed()) {
         const choice = dialog.showMessageBoxSync(window, { type: 'question', title: '视频正在下载', message: '关闭共映会中断当前下载。', buttons: ['继续下载', '关闭应用'], defaultId: 0, cancelId: 0 });
         if (choice === 0) { event.preventDefault(); return; }
       }
-      for (const item of activeDownloads) item.cancel();
+      // Cancel before the HTTP server is closed; a destroyed DownloadItem is
+      // normal once the app is quitting, so never let cancel() throw here.
+      for (const item of activeDownloads) { try { item.cancel(); } catch { /* already finished */ } }
       // Not hidden to the tray: close the whole app instead of leaving a stray tray icon.
       forceQuit = true;
     });
@@ -481,8 +490,21 @@ else {
     if (shuttingDown || !service) return;
     event.preventDefault(); shuttingDown = true;
     globalShortcut.unregisterAll();
-    Promise.allSettled([service.sources.flush(), service.roomStore.flush(), service.downloadedLibrary.flush()]).finally(() => {
-      service.io.close(); service.httpServer.closeAllConnections(); service.httpServer.close(); app.quit();
+    // Stop downloads first: otherwise closeAllConnections() destroys their
+    // response mid-pipeline and the async route handler reports a 502/abort
+    // error just as the window disappears.
+    for (const item of activeDownloads) { try { item.cancel(); } catch { /* already done */ } }
+    Promise.allSettled([
+      Promise.resolve(service.sources.flush()).catch(() => {}),
+      Promise.resolve(service.roomStore.flush()).catch(() => {}),
+      Promise.resolve(service.downloadedLibrary.flush()).catch(() => {}),
+    ]).finally(() => {
+      try { service.io.close(); } catch { /* already closed */ }
+      try { service.httpServer.closeAllConnections(); } catch { /* already closed */ }
+      // Pass a callback so a not-running server reports ERR_SERVER_NOT_RUNNING
+      // through the callback instead of surfacing an uncaught error event.
+      try { service.httpServer.close(() => {}); } catch { /* already closed */ }
+      app.quit();
     });
   });
 }

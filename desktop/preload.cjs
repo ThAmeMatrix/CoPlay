@@ -8,7 +8,7 @@ function on(channel, callback) {
 }
 
 contextBridge.exposeInMainWorld('coplayDesktop', Object.freeze({
-  version: '1.9.0',
+  version: '1.10.0',
   onDownload: callback => on('coplay:download', callback),
   publishPlayback: state => ipcRenderer.send('coplay:playback-state', state),
   onCommand: callback => on('coplay:command', callback),

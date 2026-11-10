@@ -90,8 +90,24 @@ app.whenReady().then(async () => {
   assert.ok(localCalls > 0);
   results.push({ name: 'a downloaded item plays its local copy even when the embed URL points elsewhere', ok: true });
 
+  // The plain enlarged view must not mask the hardware video overlay with a
+  // rounded clip or put it inside a promoted scroll layer. Those were the only
+  // CSS differences from page-fullscreen, which renders the picture correctly.
+  const styles = JSON.parse(await run(`return JSON.stringify((() => {
+    const s = getComputedStyle(document.querySelector('.theater-stage'));
+    const m = getComputedStyle(document.querySelector('.theater-main'));
+    return { radius: s.borderRadius, overflow: s.overflow, mainOverflow: m.overflow };
+  })());`));
+  assert.equal(styles.radius, '0px', 'the video stage must never be rounded');
+  assert.equal(styles.overflow, 'hidden');
+  assert.equal(styles.mainOverflow, 'hidden', 'no scroll layer around the video');
+  assert.equal(await run(`return !!document.querySelector('.theater-stalled');`), false,
+    'the recovery panel must not appear when the video loaded normally');
+  results.push({ name: 'plain enlarged view uses the same unmasked video surface as fullscreen', ok: true });
+
   // Both fullscreen modes share the layout that renders the video correctly.
-  await run(`[...document.querySelectorAll('.theater-actions>button')].find(b=>b.textContent.includes('页面全屏')).click();await new Promise(r=>setTimeout(r,500));`);
+  await run(`[...document.querySelectorAll('.theater-actions>button')].find(b=>b.textContent.includes('页面全屏')).click();
+    await waitFor(()=>{const v=document.querySelector('.theater-stage video');return v&&v.readyState>=2&&v.clientWidth>600&&v.clientHeight>400},'page fullscreen video ready');`);
   info = JSON.parse(await playerInfo());
   assert.ok(info.video && info.w > 600 && info.h > 400 && info.readyState >= 2, 'page fullscreen must show the video');
   assert.equal(info.overlay, true);

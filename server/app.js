@@ -101,13 +101,24 @@ export async function createApplication({ dataDir = path.resolve('data'), test =
     try { res.json(req.body?.session ? await collections.page(clean(req.body.session, 48), Number(req.body.cursor)) : await collections.start(clean(req.body?.url, 2048))); } catch (error) { res.status(400).json({ error: error.message }); }
   });
   app.get('/api/downloaded-media', async (_req, res) => { try { res.json(await downloadedLibrary.list()); } catch (error) { res.status(500).json({ error: error.message }); } });
-  app.get('/api/downloaded-media/:id/file', (req, res) => downloadedLibrary.send(req, res));
+  /**
+   * Closing the desktop app during a download destroys the response socket.
+   * An async streaming handler that rejects afterwards must not become an
+   * unhandled rejection or try to write a 502 to a dead socket.
+   */
+  const safeStream = handler => (req, res) => {
+    Promise.resolve().then(() => handler(req, res)).catch(error => {
+      if (res.destroyed || res.writableEnded || res.headersSent) return;
+      try { res.status(502).json({ error: clean(error?.message, 180) }); } catch { /* socket gone */ }
+    });
+  };
+  app.get('/api/downloaded-media/:id/file', safeStream((req, res) => downloadedLibrary.send(req, res)));
   app.post('/api/downloads/prepare', async (req, res) => {
     if (!rate(`download:${req.ip}`, 12)) return res.status(429).json({ error: '下载准备太频繁，请稍后再试' });
     const abort = new AbortController(); res.once('close', () => abort.abort());
     try { res.json(await downloads.prepare(req.body || {}, abort.signal)); } catch (e) { if (!res.destroyed) res.status(400).json({ error: e.message }); }
   });
-  app.get('/api/downloads/:token/file', (req, res) => downloads.send(req, res));
+  app.get('/api/downloads/:token/file', safeStream((req, res) => downloads.send(req, res)));
   // The renderer walks a whole selection in chunks of 10; this endpoint is the
   // per-chunk worker. A small pool keeps large selections responsive without
   // hammering the upstream platform.
@@ -132,8 +143,14 @@ export async function createApplication({ dataDir = path.resolve('data'), test =
         } catch (error) { results[index] = { key, ok: false, error: clean(error.message, 180) }; }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
-    if (!res.destroyed) res.json({ results: results.filter(Boolean) });
+    try {
+      await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
+      if (!res.destroyed && !res.writableEnded) res.json({ results: results.filter(Boolean) });
+    } catch (error) {
+      // The app may be closing while a batch is being prepared; never write to
+      // a dead socket or let the async route reject into an unhandled error.
+      if (!res.destroyed && !res.writableEnded && !res.headersSent) res.status(400).json({ error: clean(error?.message, 180) });
+    }
   });
   // GET is a read (playback surfaces must not issue POST requests); POST is kept
   // for callers that already hold an LRC sheet and just want it parsed.
@@ -162,7 +179,7 @@ export async function createApplication({ dataDir = path.resolve('data'), test =
     const abort = new AbortController(); res.once('close', () => abort.abort());
     try { res.json(await playback.prepare(req.body || {}, abort.signal)); } catch (e) { if (!res.destroyed) res.status(400).json({ error: e.message }); }
   });
-  app.get('/api/playback/:token/video', (req, res) => playback.send(req, res));
+  app.get('/api/playback/:token/video', safeStream((req, res) => playback.send(req, res)));
   app.get('/api/rooms', (_, res) => res.json([...rooms.values()].filter(r => r.public && r.members.size).map(r => ({ id: r.id, name: r.name, media: r.media, count: r.members.size, createdAt: r.createdAt }))));
   app.post('/api/rooms', (req, res) => {
     const media = validateMedia(req.body?.media);

@@ -88,10 +88,16 @@ export function createDownloads({ fetcher = safeFetch, streamer = safeStream, no
         else await pipeline(stream, bound, res, { signal: abort.signal });
         await capture?.commit();
       } catch (e) {
-        stream?.destroy();
-        await capture?.abort();
-        if (!res.headersSent && !res.destroyed) res.status(502).json({ error: e.message });
-        else res.destroy();
+        // The user closed the app (or cancelled the download): the socket is
+        // already gone. This is a cancellation, not an error to report.
+        try { stream?.destroy(); } catch { /* already destroyed */ }
+        try { await capture?.abort(); } catch { /* partial file already removed */ }
+        if (res.destroyed || res.writableEnded || res.writableFinished || abort.signal.aborted) return;
+        if (!res.headersSent) {
+          try { res.status(502).json({ error: e.message }); } catch { /* socket gone */ }
+        } else {
+          try { res.destroy(); } catch { /* socket gone */ }
+        }
       }
     },
   };

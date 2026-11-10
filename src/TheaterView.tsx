@@ -25,6 +25,8 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
   const [query, setQuery] = useState('');
   const [pageFull, setPageFull] = useState(false);
   const [error, setError] = useState('');
+  const [stalled, setStalled] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const media = items[state.index];
   // OS fullscreen is owned by the playback bus, which listens to real
@@ -52,7 +54,25 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
       if (element?.paused && element.currentTime === 0) void element.play().catch(() => {});
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [media?.id]);
+  }, [media?.id, reloadKey]);
+  // Never leave the user staring at an empty black rectangle: if no player
+  // element appeared (stuck library check, expired ticket, blocked embed…)
+  // surface an actionable recovery panel instead of silence.
+  useEffect(() => {
+    setStalled(false);
+    if (!media) return;
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      const stage = root.current?.querySelector('.theater-stage');
+      const ready = stage?.querySelector('video, audio, iframe, .theater-empty, [role="alert"]');
+      if (ready) { setStalled(false); window.clearInterval(timer); return; }
+      // A slow B 站 prepare can take a few seconds; clear the warning as soon
+      // as the player shows up instead of leaving a stale overlay behind.
+      if (++attempts === 8) setStalled(true);
+      if (attempts >= 30) window.clearInterval(timer);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [media?.id, state.version, reloadKey]);
   // One keydown listener for the lifetime of the view.
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const pageFullRef = useRef(pageFull); pageFullRef.current = pageFull;
@@ -92,8 +112,13 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
     <div className="theater-body">
       <div className="theater-main">
         {/* Stable key: mode changes and replays must not remount (and rebuffer) the video. */}
-        <div className="theater-stage" key={media?.id}>
+        <div className="theater-stage" key={`${media?.id}:${reloadKey}`}>
           {media ? <ResourcePlayer media={media} onEnded={() => step('ended')} onError={() => setError('这个媒体暂时无法播放，可以跳到下一项。')} /> : <p className="theater-empty">列表里暂时没有可播放的内容。</p>}
+          {stalled && <div className="theater-stalled" role="alert">
+            <strong>画面暂时没能加载</strong>
+            <p>可以重新载入播放器，或切换到已验证可正常显示的全屏布局。</p>
+            <div><button className="button button-outline" onClick={() => { setReloadKey(value => value + 1); setError(''); }}>重新载入</button><button className="button button-outline" onClick={togglePage}>页面全屏</button></div>
+          </div>}
         </div>
         {!fullLayout && <>
           {transport}
