@@ -1,6 +1,6 @@
 {
   "name": "coplay",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "description": "共映 · 影视与音乐资源库",
   "author": "CoPlay",
   "main": "desktop/main.cjs",

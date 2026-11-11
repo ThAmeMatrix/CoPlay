@@ -92,7 +92,50 @@ app.whenReady().then(async () => {
   assert.ok(layout.stage.x < layout.list.x, 'player must be on the left of the playlist');
   assert.ok(layout.video && layout.video.w > 500 && layout.video.h > 300 && layout.video.readyState >= 2, 'video must be visible');
   results.push({ name: 'a standalone page keeps the player fixed on the left and the playlist as the only scroll region', ok: true });
-  await shot('player-page-1.11.0.png');
+  await shot('player-page-light-1.12.0.png');
+
+  // Theme switching must be available ON the player page and actually repaint it.
+  const beforeTheme = JSON.parse(await run(`return JSON.stringify({
+    dataset: document.documentElement.dataset.theme || 'light',
+    bg: getComputedStyle(document.querySelector('.theater-view')).backgroundColor,
+    panel: getComputedStyle(document.querySelector('.theater-directory')).backgroundColor,
+    label: document.querySelector('.theater-theme-toggle')?.getAttribute('aria-label'),
+    actions: document.querySelectorAll('.theater-actions>button').length,
+    videoTime: document.querySelector('.theater-stage video').currentTime,
+  });`));
+  assert.equal(beforeTheme.actions, 2, 'theme toggle must not add a third fullscreen button');
+  assert.equal(beforeTheme.label, '切换到夜间模式');
+  await run(`document.querySelector('.theater-theme-toggle').click();
+    await waitFor(()=>document.documentElement.dataset.theme==='dark','dark theme');
+    await new Promise(r=>setTimeout(r,350));`);
+  const darkTheme = JSON.parse(await run(`return JSON.stringify({
+    dataset: document.documentElement.dataset.theme,
+    bg: getComputedStyle(document.querySelector('.theater-view')).backgroundColor,
+    panel: getComputedStyle(document.querySelector('.theater-directory')).backgroundColor,
+    text: getComputedStyle(document.querySelector('.theater-titles strong')).color,
+    label: document.querySelector('.theater-theme-toggle')?.getAttribute('aria-label'),
+    stored: JSON.parse(localStorage.getItem('coplay:settings-v1')||'{}').theme,
+    video: !!document.querySelector('.theater-stage video'),
+    playing: !document.querySelector('.theater-stage video')?.paused,
+  });`));
+  assert.equal(darkTheme.dataset, 'dark');
+  assert.notEqual(darkTheme.bg, beforeTheme.bg, 'the page background must change with the theme');
+  assert.notEqual(darkTheme.panel, beforeTheme.panel, 'the playlist panel must change with the theme');
+  assert.equal(darkTheme.label, '切换到日间模式');
+  assert.equal(darkTheme.stored, 'dark', 'the choice must persist to settings');
+  assert.equal(darkTheme.video, true, 'switching theme must not remount / blank the video');
+  assert.equal(darkTheme.playing, true, 'playback must continue across the switch');
+  await shot('player-page-dark-1.12.0.png');
+  results.push({ name: 'the player page switches to night mode, repaints and keeps playing', ok: true });
+
+  await run(`document.querySelector('.theater-theme-toggle').click();
+    await waitFor(()=>document.documentElement.dataset.theme==='light','light theme');
+    await new Promise(r=>setTimeout(r,300));`);
+  const lightAgain = JSON.parse(await run(`return JSON.stringify({dataset:document.documentElement.dataset.theme,bg:getComputedStyle(document.querySelector('.theater-view')).backgroundColor,stored:JSON.parse(localStorage.getItem('coplay:settings-v1')||'{}').theme});`));
+  assert.equal(lightAgain.dataset, 'light');
+  assert.equal(lightAgain.bg, beforeTheme.bg);
+  assert.equal(lightAgain.stored, 'light');
+  results.push({ name: 'switching back to day mode restores the light palette', ok: true });
 
   // Wheel over the player scrolls the playlist, not the page.
   const wheel = JSON.parse(await run(`
@@ -133,10 +176,19 @@ app.whenReady().then(async () => {
   // Page fullscreen hides the directory but keeps a reachable transport.
   await run(`[...document.querySelectorAll('.theater-actions>button')].find(b=>b.textContent.includes('页面全屏')).click();await tick();
     await waitFor(()=>document.querySelector('.theater-view.page-full'),'page full');`);
-  const full = JSON.parse(await run(`return JSON.stringify({list:!!document.querySelector('.theater-directory'),transport:!!document.querySelector('.theater-page-controls .playback-controls'),video:!!document.querySelector('.theater-stage video')});`));
+  const full = JSON.parse(await run(`return JSON.stringify({list:!!document.querySelector('.theater-directory'),transport:!!document.querySelector('.theater-page-controls .playback-controls'),video:!!document.querySelector('.theater-stage video'),themeToggle:!!document.querySelector('.theater-page-theme button'),header:getComputedStyle(document.querySelector('.theater-head')).display});`));
   assert.equal(full.list, false);
   assert.equal(full.transport, true);
   assert.equal(full.video, true);
+  assert.equal(full.header, 'none');
+  assert.equal(full.themeToggle, true, 'the theme toggle must stay reachable when the header is hidden');
+  await run(`document.querySelector('.theater-page-theme button').click();
+    await waitFor(()=>document.documentElement.dataset.theme==='dark','dark from fullscreen');`);
+  assert.equal(await run(`return document.documentElement.dataset.theme;`), 'dark');
+  await shot('player-page-full-dark-1.12.0.png');
+  await run(`document.querySelector('.theater-page-theme button').click();
+    await waitFor(()=>document.documentElement.dataset.theme==='light','light from fullscreen');`);
+  results.push({ name: 'the floating fullscreen layout keeps a working theme toggle', ok: true });
   await shot('player-page-full-1.11.0.png');
   await run(`[...document.querySelectorAll('.theater-page-actions button')].find(b=>b.textContent.includes('退出页面全屏')).click();await tick();`);
   results.push({ name: 'page fullscreen hides only the playlist and keeps the transport', ok: true });
@@ -144,10 +196,12 @@ app.whenReady().then(async () => {
   // Returning restores the library page and the persistent bottom player.
   await run(`document.querySelector('.theater-back').click();await tick();
     await waitFor(()=>document.querySelector('.app-shell'),'library page');`);
-  const back = JSON.parse(await run(`return JSON.stringify({page:!!document.querySelector('.theater-view'),dock:!!document.querySelector('.player-dock'),videos:document.querySelectorAll('video').length,locked:document.documentElement.classList.contains('player-page-active')});`));
+  const back = JSON.parse(await run(`return JSON.stringify({page:!!document.querySelector('.theater-view'),dock:!!document.querySelector('.player-dock'),videos:document.querySelectorAll('video').length,locked:document.documentElement.classList.contains('player-page-active'),theme:document.documentElement.dataset.theme,topbarLabel:document.querySelector('.topbar-actions .theme-toggle')?.getAttribute('aria-label')});`));
   assert.equal(back.page, false);
   assert.equal(back.dock, true);
   assert.equal(back.locked, false, 'the scroll lock must be removed');
+  assert.equal(back.theme, 'light');
+  assert.equal(back.topbarLabel, '切换到夜间模式', 'the library topbar must share the same theme state');
   results.push({ name: 'returning leaves the new page cleanly and restores the bottom player', ok: true });
 
   fs.writeFileSync(path.join(root, '.qa/player-page-renderer-tests.json'), JSON.stringify(results, null, 2));

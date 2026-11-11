@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Maximize2, Minimize2, MonitorPlay, Play, Search, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Maximize2, Minimize2, MonitorPlay, Moon, Play, Search, Sun, X } from 'lucide-react';
 import { Cover, PlatformIcon } from './components';
 import { ResourcePlayer } from './MediaPlayer';
 import PlaybackControls from './PlaybackControls';
@@ -9,6 +9,7 @@ import { DownloadButton } from './DownloadActions';
 import { playback, playbackMeta, useFullscreen, usePlaybackSource, usePlaybackMode, useQueueHandlers } from './playback';
 import { canStepQueue, changeQueueMode, createQueue, playbackModes, selectQueueItem, stepQueue, type PlaybackMode } from './playback-queue';
 import { mediaMatchesSearch } from './playlist-search';
+import { resolvedTheme, type ThemeMode } from './settings';
 import type { Media } from './types';
 
 export interface TheaterSession { title: string; items: Media[]; index: number; mode: PlaybackMode }
@@ -19,10 +20,11 @@ export interface TheaterSession { title: string; items: Media[]; index: number; 
  * the playlist. Wheel events anywhere on the page, and the slim scrub bar above
  * the list, both scroll that playlist.
  */
-export default function TheaterView({ session, onClose, onPlayed, onModeChange, onIndexChange, lyricsEnabled = false, onToggleLyrics = () => {}, notify }: {
+export default function TheaterView({ session, onClose, onPlayed, onModeChange, onIndexChange, lyricsEnabled = false, onToggleLyrics = () => {}, notify, theme, onToggleTheme }: {
   session: TheaterSession; onClose: () => void; onPlayed: (media: Media) => void;
   onModeChange: (mode: PlaybackMode) => void; onIndexChange?: (index: number) => void;
   lyricsEnabled?: boolean; onToggleLyrics?: () => void; notify?: (text: string) => void;
+  theme: ThemeMode; onToggleTheme: () => void;
 }) {
   const { items, title } = session;
   const [state, setState] = useState(() => createQueue(items.length, session.mode, session.index));
@@ -38,6 +40,8 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
   const media = items[state.index];
   const fullscreen = useFullscreen();
   const fullLayout = pageFull || fullscreen;
+  const isDark = resolvedTheme(theme) === 'dark';
+  const themeLabel = isDark ? '切换到日间模式' : '切换到夜间模式';
   const visible = useMemo(() => items.map((item, index) => ({ item, index })).filter(({ item }) => mediaMatchesSearch(item, query)), [items, query]);
   const played = useRef(onPlayed); played.current = onPlayed;
   const step = (reason: 'ended' | 'next' | 'previous') => { const choice = Math.random(); setState(current => stepQueue(current, items.length, mode, reason, () => choice)); };
@@ -142,6 +146,8 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
     <header className="theater-head">
       <button className="theater-back" onClick={onClose}><ArrowLeft size={17} />返回</button>
       <div className="theater-titles"><strong>{media?.title || title}</strong><span>{title} · {state.index + 1} / {items.length} · {media?.subtitle || media?.platform}</span></div>
+      {/* Outside .theater-actions so the two fullscreen controls stay unambiguous. */}
+      <button className="icon-button theme-toggle theater-theme-toggle" aria-label={themeLabel} title={themeLabel} aria-pressed={isDark} onClick={onToggleTheme}>{isDark ? <Sun size={18} /> : <Moon size={18} />}</button>
       <div className="theater-actions">
         <button className={pageFull ? 'active' : ''} aria-pressed={pageFull} onClick={togglePage} title="页面全屏：播放器铺满整个页面（Esc 退出）">{pageFull ? <Minimize2 size={15} /> : <Maximize2 size={15} />}<span>页面全屏</span></button>
         <button className={fullscreen ? 'active' : ''} aria-pressed={fullscreen} onClick={toggleDirect} title="直接全屏：系统级全屏（Esc 退出）"><MonitorPlay size={15} /><span>{fullscreen ? '退出全屏' : '直接全屏'}</span></button>
@@ -191,6 +197,7 @@ export default function TheaterView({ session, onClose, onPlayed, onModeChange, 
     </div>
     {fullLayout && <div className="theater-page-controls">
       <div className="theater-page-title"><strong>{media?.title || title}</strong><span>{state.index + 1} / {items.length}</span></div>
+      <div className="theater-page-theme"><button className="icon-button" aria-label={themeLabel} title={themeLabel} aria-pressed={isDark} onClick={onToggleTheme}>{isDark ? <Sun size={17} /> : <Moon size={17} />}</button></div>
       {transport}
       <div className="theater-page-actions">
         <button className="button button-outline" onClick={toggleDirect} title="系统级全屏">{fullscreen ? <Minimize2 size={15} /> : <MonitorPlay size={15} />}{fullscreen ? '退出全屏' : '直接全屏'}</button>

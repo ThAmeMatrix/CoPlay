@@ -45,6 +45,11 @@ export function resolvedTheme(theme: ThemeMode): 'light' | 'dark' {
   return theme;
 }
 
+/** Flip the visible day/night appearance; "跟随系统" becomes an explicit choice. */
+export function toggleThemeMode(theme: ThemeMode): ThemeMode {
+  return resolvedTheme(theme) === 'dark' ? 'light' : 'dark';
+}
+
 export function applyTheme(theme: ThemeMode) {
   const resolved = resolvedTheme(theme);
   document.documentElement.dataset.theme = resolved;

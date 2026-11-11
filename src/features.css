@@ -4,6 +4,16 @@
   --line:#e3e7e8;--text:#282d32;--text-muted:#6e757a;--text-weak:#8b959e;
   --tint:#fff0ea;--tint-strong:#fce3d6;--shadow:0 18px 48px #0d1f3a24;
   --bubble-bg:#fff;--theater-bg:#10161b;
+  /* Player page: light defaults; dark overrides below. Own tokens so the
+     generated theme-dark.css (which only reads styles/expanded) cannot clash. */
+  --player-bg:#f7f8fa;--player-panel:#fff;--player-line:#e3e7e8;--player-field:#f1f3f5;
+  --player-text:#282d32;--player-muted:#6e757a;--player-hover:#e9edf0;--player-active:#fff0ea;
+  --player-active-text:#b8502c;--player-scroll:#c3ccd2;--player-btn-line:#d9dfe2;
+}
+:root[data-theme="dark"]{
+  --player-bg:#0d1116;--player-panel:#151c22;--player-line:#ffffff1a;--player-field:#ffffff0b;
+  --player-text:#eef2f4;--player-muted:#96a6ae;--player-hover:#ffffff14;--player-active:#ffffff1c;
+  --player-active-text:#fff;--player-scroll:#3f505a;--player-btn-line:#ffffff30;
 }
 
 /* Topbar theme switch */
@@ -84,19 +94,21 @@
    video stays on a plain compositor surface. Left pane never scrolls; the
    playlist on the right is the ONLY scrollable region. */
 .player-page-active,.player-page-active body{height:100%;overflow:hidden}
-.theater-view{position:relative;display:flex;flex-direction:column;height:100vh;min-height:0;background:var(--theater-bg);color:#eef2f4;overflow:hidden}
+.theater-view{position:relative;display:flex;flex-direction:column;height:100vh;min-height:0;background:var(--player-bg);color:var(--player-text);overflow:hidden}
 /* Chromium's Fullscreen API keeps <video> in the same compositor surface (unlike
    Electron's native setFullScreen which can blank the video layer). */
-.theater-view:fullscreen{width:100vw;height:100vh;max-width:none;max-height:none;inset:0;margin:0;background:var(--theater-bg)}
-.theater-head{flex-shrink:0;display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid #ffffff18}
-.theater-head>.theater-back{display:flex;align-items:center;gap:7px;font-size:13px;color:#c8d2d6;white-space:nowrap}
-.theater-head>.theater-back:hover{color:#fff}
+.theater-view:fullscreen{width:100vw;height:100vh;max-width:none;max-height:none;inset:0;margin:0;background:var(--player-bg)}
+.theater-head{flex-shrink:0;display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--player-line);background:var(--player-bg)}
+.theater-head>.theater-back{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--player-muted);white-space:nowrap}
+.theater-head>.theater-back:hover{color:var(--player-text)}
 .theater-titles{flex:1;min-width:0}
 .theater-titles strong{display:block;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.theater-titles span{display:block;font-size:12px;color:#96a6ae;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.theater-titles span{display:block;font-size:12px;color:var(--player-muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.theater-head>.theater-theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:1px solid var(--player-btn-line);border-radius:8px;background:var(--player-field);color:var(--player-text);flex-shrink:0}
+.theater-head>.theater-theme-toggle:hover{background:var(--player-hover);color:var(--player-active-text)}
 .theater-actions{display:flex;gap:8px;flex-shrink:0}
-.theater-actions>button{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid #ffffff30;border-radius:7px;font-size:12px;color:#dbe5e8;white-space:nowrap}
-.theater-actions>button:hover{background:#ffffff14;color:#fff}
+.theater-actions>button{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--player-btn-line);border-radius:7px;font-size:12px;color:var(--player-text);background:var(--player-field);white-space:nowrap}
+.theater-actions>button:hover{background:var(--player-hover);color:var(--player-active-text)}
 .theater-actions>button.active{background:var(--accent);border-color:var(--accent);color:#fff}
 .theater-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:0;overflow:hidden}
 .theater-main{min-width:0;min-height:0;display:flex;flex-direction:column;padding:16px 20px 10px;gap:14px;overflow:hidden}
@@ -110,35 +122,34 @@
 .theater-stage iframe,.theater-stage video{width:100%;height:100%;border:0;object-fit:contain}
 .theater-stage audio{width:90%}
 .theater-stage .bili-player,.theater-stage .native-audio-player,.theater-stage .downloaded-player{width:100%;height:100%}
-.theater-main>.playback-controls{padding:4px 6px 8px;color:#cbd5d9}
-.theater-main>.playback-controls .icon-button{color:#cbd5d9}
-.theater-main>.playback-controls .icon-button:hover{background:#ffffff18;color:#fff}
-.theater-directory{min-width:0;min-height:0;border-left:1px solid #ffffff18;display:flex;flex-direction:column;background:#151c22;overflow:hidden}
-.theater-directory>header{padding:14px 16px 10px;flex-shrink:0;border-bottom:1px solid #ffffff12}
+.theater-main>.playback-controls{padding:4px 6px 8px;color:var(--player-text)}
+.theater-main>.playback-controls .icon-button{color:var(--player-text)}
+.theater-main>.playback-controls .icon-button:hover{background:var(--player-hover);color:var(--player-active-text)}
+.theater-directory{min-width:0;min-height:0;border-left:1px solid var(--player-line);display:flex;flex-direction:column;background:var(--player-panel);overflow:hidden}
+.theater-directory>header{padding:14px 16px 10px;flex-shrink:0;border-bottom:1px solid var(--player-line)}
 .theater-directory>header strong{font-size:14px;font-weight:600}
-.theater-directory>header span{display:block;font-size:11px;color:#93a2aa;margin-top:5px}
-.theater-search{display:flex;align-items:center;gap:7px;margin-top:12px;padding:8px 10px;border:1px solid #ffffff24;border-radius:7px;background:#ffffff0b;color:#9db0b8}
-.theater-search input{flex:1;min-width:0;border:0;background:none;outline:none;color:#eef2f4;font-size:12px}
-.theater-search input::placeholder{color:#84959d}
+.theater-directory>header span{display:block;font-size:11px;color:var(--player-muted);margin-top:5px}
+.theater-search{display:flex;align-items:center;gap:7px;margin-top:12px;padding:8px 10px;border:1px solid var(--player-line);border-radius:7px;background:var(--player-field);color:var(--player-muted)}
+.theater-search input{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--player-text);font-size:12px}
+.theater-search input::placeholder{color:var(--player-muted)}
 /* Scrub bar for browsing the playlist: dragging it scrolls the list. */
-.player-list-scroll{display:flex;align-items:center;gap:9px;margin-top:10px;font-size:11px;color:#93a2aa}
+.player-list-scroll{display:flex;align-items:center;gap:9px;margin-top:10px;font-size:11px;color:var(--player-muted)}
 .player-list-scroll>span{white-space:nowrap;font-variant-numeric:tabular-nums}
 .player-list-scroll input{flex:1;min-width:0;height:16px;accent-color:var(--accent);cursor:pointer}
-.theater-items{position:relative;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:6px 10px 18px;scrollbar-color:#465762 #151c22;scrollbar-width:thin}
+.theater-items{position:relative;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:6px 10px 18px;scrollbar-color:var(--player-scroll) var(--player-panel);scrollbar-width:thin}
 .theater-items::-webkit-scrollbar{width:11px}
-.theater-items::-webkit-scrollbar-track{background:#151c22}
-.theater-items::-webkit-scrollbar-thumb{background:#3f505a;border:2px solid #151c22;border-radius:7px}
-.theater-items::-webkit-scrollbar-thumb:hover{background:#5c7280}
-.theater-items>button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:8px;text-align:left;color:#c5d0d5;font-size:12px}
-.theater-items>button:hover{background:#ffffff10}
-.theater-items>button.active{background:#ffffff1c;color:#fff}
-.theater-items>button>span:first-child{width:18px;flex-shrink:0;color:#8fa0a8;font-variant-numeric:tabular-nums;text-align:center}
+.theater-items::-webkit-scrollbar-track{background:var(--player-panel)}
+.theater-items::-webkit-scrollbar-thumb{background:var(--player-scroll);border:2px solid var(--player-panel);border-radius:7px}
+.theater-items>button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:8px;text-align:left;color:var(--player-text);font-size:12px}
+.theater-items>button:hover{background:var(--player-hover)}
+.theater-items>button.active{background:var(--player-active);color:var(--player-active-text)}
+.theater-items>button>span:first-child{width:18px;flex-shrink:0;color:var(--player-muted);font-variant-numeric:tabular-nums;text-align:center}
 .theater-items>button>div:not(.theater-cover){flex:1;min-width:0}
 .theater-items>button strong{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.theater-items>button small{display:block;color:#8b9ba3;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.theater-cover{width:34px;height:44px;flex:0 0 34px;border-radius:4px;overflow:hidden;background:#2b343a}
+.theater-items>button small{display:block;color:var(--player-muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.theater-cover{width:34px;height:44px;flex:0 0 34px;border-radius:4px;overflow:hidden;background:var(--player-hover)}
 .theater-cover img{width:100%;height:100%;object-fit:cover}
-.theater-empty{padding:26px 14px;text-align:center;font-size:12px;color:#8fa0a8;line-height:1.8}
+.theater-empty{padding:26px 14px;text-align:center;font-size:12px;color:var(--player-muted);line-height:1.8}
 .theater-view.page-full .theater-head{display:none}
 .theater-view.page-full .theater-body{grid-template-columns:minmax(0,1fr)}
 .theater-view.page-full .theater-directory{display:none}
@@ -168,6 +179,10 @@
 .theater-page-controls>.playback-controls{flex:1;min-width:0;color:#cbd5d9}
 .theater-page-controls .icon-button{color:#cbd5d9}
 .theater-page-controls .icon-button:hover{background:#ffffff18;color:#fff}
+/* Theme stays reachable in both fullscreen layouts (header is hidden there). */
+.theater-page-theme{display:flex;flex-shrink:0}
+.theater-page-theme .icon-button{color:#eef2f4}
+.theater-page-theme .icon-button:hover{background:#ffffff18;color:#fff}
 .theater-page-actions{display:flex;gap:8px;flex-shrink:0}
 .theater-page-actions .button{background:#ffffff14;border-color:#ffffff30;color:#eef2f4;font-size:12px;white-space:nowrap}
 .theater-page-actions .button:hover{background:#ffffff24;color:#fff}
@@ -179,7 +194,7 @@
 @media(max-width:1100px){.theater-body{grid-template-columns:minmax(0,1fr) 300px}}
 @media(max-width:760px){
   .theater-body{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,50vh) minmax(0,1fr)}
-  .theater-directory{border-left:0;border-top:1px solid #ffffff18}
+  .theater-directory{border-left:0;border-top:1px solid var(--player-line)}
   .theater-main{padding:10px 12px 8px;gap:8px}
   .theater-main>.theater-extra-actions{display:none}
   .theater-actions>button span{display:none}

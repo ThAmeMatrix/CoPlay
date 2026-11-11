@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Film } from 'lucide-react';
 import TheaterView, { type TheaterSession } from './TheaterView';
 import { normalizePlaybackMode } from './playback-queue';
-import { applyTheme, useSettings } from './settings';
+import { applyTheme, toggleThemeMode, useSettings } from './settings';
 import DesktopDownloads from './DesktopDownloads';
 import type { Media } from './types';
 
@@ -25,5 +25,6 @@ export default function TheaterStandalone() {
   }, []);
   if (!session) return <div className="theater-view"><div className="theater-empty" style={{ margin: 'auto' }}><Film size={32} /><p>没有可播放的内容。请从共映主界面选择一个播放列表。</p></div></div>;
   return <><DesktopDownloads /><TheaterView session={session} onClose={() => window.coplayDesktop?.closeTheater?.()} onPlayed={() => {}} onModeChange={() => {}}
-    lyricsEnabled={settings.showLyrics} onToggleLyrics={() => patchSettings({ showLyrics: !settings.showLyrics })} /></>;
+    lyricsEnabled={settings.showLyrics} onToggleLyrics={() => patchSettings({ showLyrics: !settings.showLyrics })}
+    theme={settings.theme} onToggleTheme={() => patchSettings({ theme: toggleThemeMode(settings.theme) })} /></>;
 }
